@@ -1,0 +1,366 @@
+/* ============================================================
+   estilos.css — Registro de Gastos
+   Organización: 1) variables  2) base  3) estructura  4) componentes
+   ============================================================ */
+
+/* ---------- 1. Variables (colores y medidas en un solo lugar) ---------- */
+:root {
+  --fondo: #f4f6f8;
+  --superficie: #ffffff;
+  --texto: #1e293b;
+  --texto-suave: #64748b;
+  --borde: #e2e8f0;
+  --primario: #0f766e;
+  --primario-oscuro: #115e59;
+  --peligro: #dc2626;
+  --radio: 14px;
+  --sombra: 0 1px 3px rgba(15, 23, 42, 0.08), 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+/* Modo oscuro automático si el teléfono o computador lo tiene activado */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #0f172a;
+    --superficie: #1e293b;
+    --texto: #e2e8f0;
+    --texto-suave: #94a3b8;
+    --borde: #334155;
+    --primario: #14b8a6;
+    --primario-oscuro: #0d9488;
+    --sombra: none;
+  }
+}
+
+/* ---------- 2. Base ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box; /* el padding no agranda las cajas */
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  scroll-behavior: smooth; /* desplazamiento suave al usar el menú */
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  line-height: 1.2;
+  margin: 0 0 0.75rem;
+}
+
+/* ---------- 3. Estructura ---------- */
+.contenedor {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.encabezado {
+  background: var(--primario);
+  color: #fff;
+  padding: 2rem 0 1.25rem;
+}
+
+.encabezado h1 {
+  font-size: clamp(1.6rem, 5vw, 2.2rem); /* tamaño que se adapta a la pantalla */
+}
+
+.subtitulo {
+  margin: 0 0 1rem;
+  opacity: 0.9;
+}
+
+.menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.menu a {
+  color: #fff;
+  text-decoration: none;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+.menu a:hover,
+.menu a:focus-visible {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+main.contenedor {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 1.25rem;
+  scroll-margin-top: 1rem; /* deja aire arriba al saltar desde el menú */
+}
+
+.pie {
+  text-align: center;
+  color: var(--texto-suave);
+  font-size: 0.9rem;
+  padding: 1rem 0 2rem;
+}
+
+.pie p {
+  margin: 0.25rem 0;
+}
+
+.nota {
+  font-size: 0.8rem;
+}
+
+/* ---------- 4. Componentes ---------- */
+
+/* Formulario */
+.fila {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0 1rem;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.9rem;
+}
+
+.campo label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.3rem;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--texto);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--primario);
+  outline-offset: 1px;
+}
+
+.mensaje-error {
+  color: var(--peligro);
+  font-weight: 600;
+  min-height: 1.5em; /* reserva espacio para que la página no "salte" */
+  margin: 0 0 0.5rem;
+}
+
+.boton {
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  padding: 0.7rem 1.4rem;
+  background: var(--primario);
+  color: #fff;
+  cursor: pointer;
+}
+
+.boton:hover {
+  background: var(--primario-oscuro);
+}
+
+.boton:focus-visible,
+.boton-eliminar:focus-visible {
+  outline: 3px solid var(--texto);
+  outline-offset: 2px;
+}
+
+.boton-peligro {
+  background: transparent;
+  color: var(--peligro);
+  border: 1px solid var(--peligro);
+  margin-top: 1rem;
+}
+
+.boton-peligro:hover {
+  background: var(--peligro);
+  color: #fff;
+}
+
+/* Indicadores del resumen */
+.indicadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.indicador {
+  background: var(--fondo);
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.indicador-etiqueta {
+  color: var(--texto-suave);
+  font-size: 0.85rem;
+}
+
+.indicador-valor {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums; /* números alineados */
+}
+
+/* Gráfico de barras hecho solo con CSS */
+.grafico {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.barra-fila {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.barra-pista {
+  height: 12px;
+  background: var(--fondo);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.barra-relleno {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.barra-valor {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Historial */
+.historial-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.campo-filtro {
+  min-width: 200px;
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gasto {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--borde);
+}
+
+.gasto-icono {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+}
+
+.gasto-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* permite cortar textos largos */
+}
+
+.gasto-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gasto-info small {
+  color: var(--texto-suave);
+}
+
+.gasto-monto {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.boton-eliminar {
+  border: none;
+  background: transparent;
+  color: var(--texto-suave);
+  font-size: 1rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.boton-eliminar:hover {
+  background: var(--fondo);
+  color: var(--peligro);
+}
+
+.vacio {
+  color: var(--texto-suave);
+  text-align: center;
+  padding: 1rem 0;
+  margin: 0;
+}
+
+/* Pantallas pequeñas (celulares) */
+@media (max-width: 520px) {
+  .barra-fila {
+    grid-template-columns: 1fr auto;
+  }
+  .barra-pista {
+    grid-column: 1 / -1; /* la barra pasa a su propia línea */
+    grid-row: 2;
+  }
+}

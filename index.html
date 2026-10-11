@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Registro de gastos personales en una sola página. Proyecto de Contexto de Software.">
+  <meta name="author" content="Daniel Salomón Palles Atis">
+  <title>Registro de Gastos</title>
+  <!-- Rutas RELATIVAS (sin "/" al inicio) para que funcionen en GitHub Pages -->
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+  <header class="encabezado">
+    <div class="contenedor">
+      <h1><span aria-hidden="true">💰</span> Registro de Gastos</h1>
+      <p class="subtitulo">Anota en qué se va tu dinero y mira el resumen al instante.</p>
+      <!-- Navegación interna: cada enlace apunta a un id que existe en esta misma página -->
+      <nav class="menu" aria-label="Secciones de la página">
+        <a href="#registrar">Registrar</a>
+        <a href="#resumen">Resumen</a>
+        <a href="#historial">Historial</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="contenedor">
+    <!-- SECCIÓN 1: formulario para registrar un gasto -->
+    <section id="registrar" class="tarjeta">
+      <h2>Nuevo gasto</h2>
+      <form id="formulario-gasto" novalidate>
+        <div class="campo">
+          <label for="descripcion">Descripción</label>
+          <input type="text" id="descripcion" maxlength="60" placeholder="Ej: Almuerzo en la universidad" autocomplete="off" required>
+        </div>
+        <div class="fila">
+          <div class="campo">
+            <label for="monto">Monto (COP)</label>
+            <input type="number" id="monto" min="1" step="1" inputmode="numeric" placeholder="Ej: 15000" required>
+          </div>
+          <div class="campo">
+            <label for="categoria">Categoría</label>
+            <!-- Las opciones se llenan desde JavaScript (una sola fuente de datos) -->
+            <select id="categoria" required></select>
+          </div>
+          <div class="campo">
+            <label for="fecha">Fecha</label>
+            <input type="date" id="fecha" required>
+          </div>
+        </div>
+        <p id="mensaje-error" class="mensaje-error" role="alert"></p>
+        <button type="submit" class="boton">Agregar gasto</button>
+      </form>
+    </section>
+
+    <!-- SECCIÓN 2: resumen con totales y gráfico de barras -->
+    <section id="resumen" class="tarjeta">
+      <h2>Resumen</h2>
+      <div class="indicadores">
+        <div class="indicador">
+          <span class="indicador-etiqueta">Total general</span>
+          <strong id="total-general" class="indicador-valor">$ 0</strong>
+        </div>
+        <div class="indicador">
+          <span class="indicador-etiqueta">Este mes</span>
+          <strong id="total-mes" class="indicador-valor">$ 0</strong>
+        </div>
+        <div class="indicador">
+          <span class="indicador-etiqueta">Gastos registrados</span>
+          <strong id="cantidad-gastos" class="indicador-valor">0</strong>
+        </div>
+      </div>
+      <h3>Gasto por categoría</h3>
+      <ul id="grafico-categorias" class="grafico"></ul>
+      <p id="grafico-vacio" class="vacio">Cuando registres gastos, aquí verás en qué categoría gastas más.</p>
+    </section>
+
+    <!-- SECCIÓN 3: historial con filtro -->
+    <section id="historial" class="tarjeta">
+      <div class="historial-cabecera">
+        <h2>Historial</h2>
+        <div class="campo campo-filtro">
+          <label for="filtro-categoria">Filtrar</label>
+          <select id="filtro-categoria"></select>
+        </div>
+      </div>
+      <ul id="lista-gastos" class="lista"></ul>
+      <p id="lista-vacia" class="vacio">No hay gastos para mostrar.</p>
+      <button type="button" id="boton-borrar-todo" class="boton boton-peligro">Borrar todos los gastos</button>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="contenedor">
+      <p>Hecho por <strong>Daniel Salomón Palles Atis</strong> · Primer semestre · Ingeniería de Software</p>
+      <p>Materia: Contexto de Software · Desarrollado con apoyo de Claude (Anthropic)</p>
+      <p class="nota">Tus datos se guardan solo en este navegador (localStorage). No se envían a ningún servidor.</p>
+    </div>
+  </footer>
+
+  <!-- Primero la lógica (sin HTML), después la interfaz que la usa -->
+  <script src="js/logica.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
