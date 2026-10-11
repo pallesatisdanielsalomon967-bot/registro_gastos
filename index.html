@@ -3,103 +3,437 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Registro de gastos personales en una sola página. Proyecto de Contexto de Software.">
+  <meta name="description" content="Registro de gastos personales con cuenta de usuario, indicadores y gráficos. Proyecto de Contexto de Software.">
   <meta name="author" content="Daniel Salomón Palles Atis">
+  <meta name="color-scheme" content="light dark">
   <title>Registro de Gastos</title>
   <!-- Rutas RELATIVAS (sin "/" al inicio) para que funcionen en GitHub Pages -->
   <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body>
-  <header class="encabezado">
-    <div class="contenedor">
-      <h1><span aria-hidden="true">💰</span> Registro de Gastos</h1>
-      <p class="subtitulo">Anota en qué se va tu dinero y mira el resumen al instante.</p>
-      <!-- Navegación interna: cada enlace apunta a un id que existe en esta misma página -->
-      <nav class="menu" aria-label="Secciones de la página">
-        <a href="#registrar">Registrar</a>
-        <a href="#resumen">Resumen</a>
-        <a href="#historial">Historial</a>
-      </nav>
-    </div>
-  </header>
+  <!-- Iconos reutilizables: se usan con <use href="#i-nombre"> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-inicio" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></symbol>
+      <symbol id="i-lista" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+      <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-etiqueta" viewBox="0 0 24 24"><path d="M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"/></symbol>
+      <symbol id="i-usuario" viewBox="0 0 24 24"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+      <symbol id="i-salir" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></symbol>
+      <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    </defs>
+  </svg>
 
-  <main class="contenedor">
-    <!-- SECCIÓN 1: formulario para registrar un gasto -->
-    <section id="registrar" class="tarjeta">
-      <h2>Nuevo gasto</h2>
-      <form id="formulario-gasto" novalidate>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+  <!-- ============================================================
+       VENTANA INICIAL: verificación de usuario + fecha de hoy
+       ============================================================ -->
+  <section id="pantalla-acceso" class="acceso" hidden aria-labelledby="acceso-titulo">
+    <div class="acceso-marca">
+      <p class="acceso-logo"><img src="img/favicon.svg" alt="" width="28" height="28"> Registro de Gastos</p>
+      <div class="fecha-grande" aria-label="Fecha de hoy">
+        <span id="acceso-numero" class="fecha-numero"></span>
+        <span id="acceso-semana" class="fecha-semana"></span>
+        <span id="acceso-mes" class="fecha-mes"></span>
+      </div>
+      <p class="acceso-lema">Anota lo que gastas y mira a dónde se va tu dinero.</p>
+    </div>
+
+    <div class="acceso-forma">
+      <h1 id="acceso-titulo" class="solo-lectores">Ingresar a Registro de Gastos</h1>
+      <div class="pestanas" role="tablist" aria-label="Acceso">
+        <button type="button" role="tab" id="pestana-ingresar" aria-selected="true" aria-controls="form-ingresar">Ingresar</button>
+        <button type="button" role="tab" id="pestana-crear" aria-selected="false" aria-controls="form-crear" tabindex="-1">Crear cuenta</button>
+      </div>
+
+      <form id="form-ingresar" role="tabpanel" aria-labelledby="pestana-ingresar" novalidate>
         <div class="campo">
-          <label for="descripcion">Descripción</label>
-          <input type="text" id="descripcion" maxlength="60" placeholder="Ej: Almuerzo en la universidad" autocomplete="off" required>
+          <label for="in-correo">Correo</label>
+          <input type="email" id="in-correo" autocomplete="username" inputmode="email" placeholder="nombre@correo.com" required>
         </div>
+        <div class="campo">
+          <label for="in-clave">Contraseña</label>
+          <div class="campo-clave">
+            <input type="password" id="in-clave" autocomplete="current-password" required>
+            <button type="button" class="ver-clave" data-ver="in-clave" aria-pressed="false">Mostrar</button>
+          </div>
+        </div>
+        <label class="casilla"><input type="checkbox" id="in-recordar"> Mantener la sesión iniciada en este dispositivo</label>
+        <p id="in-error" class="mensaje-error" role="alert"></p>
+        <button type="submit" class="boton boton-ancho" id="in-enviar">Ingresar</button>
+        <p class="acceso-nota">¿Primera vez aquí? Elige <strong>Crear cuenta</strong>.</p>
+      </form>
+
+      <form id="form-crear" role="tabpanel" aria-labelledby="pestana-crear" hidden novalidate>
         <div class="fila">
           <div class="campo">
-            <label for="monto">Monto (COP)</label>
-            <input type="number" id="monto" min="1" step="1" inputmode="numeric" placeholder="Ej: 15000" required>
+            <label for="cr-nombres">Nombres</label>
+            <input type="text" id="cr-nombres" autocomplete="given-name" maxlength="60" required>
           </div>
           <div class="campo">
-            <label for="categoria">Categoría</label>
-            <!-- Las opciones se llenan desde JavaScript (una sola fuente de datos) -->
-            <select id="categoria" required></select>
-          </div>
-          <div class="campo">
-            <label for="fecha">Fecha</label>
-            <input type="date" id="fecha" required>
+            <label for="cr-apellidos">Apellidos</label>
+            <input type="text" id="cr-apellidos" autocomplete="family-name" maxlength="60" required>
           </div>
         </div>
-        <p id="mensaje-error" class="mensaje-error" role="alert"></p>
-        <button type="submit" class="boton">Agregar gasto</button>
+        <div class="campo">
+          <label for="cr-correo">Correo</label>
+          <input type="email" id="cr-correo" autocomplete="email" inputmode="email" placeholder="nombre@correo.com" required>
+        </div>
+        <div class="campo">
+          <label for="cr-clave">Contraseña</label>
+          <div class="campo-clave">
+            <input type="password" id="cr-clave" autocomplete="new-password" aria-describedby="cr-ayuda" required>
+            <button type="button" class="ver-clave" data-ver="cr-clave" aria-pressed="false">Mostrar</button>
+          </div>
+          <small id="cr-ayuda" class="ayuda">Mínimo 8 caracteres, con letras y números.</small>
+        </div>
+        <div class="campo">
+          <label for="cr-confirmar">Repite la contraseña</label>
+          <input type="password" id="cr-confirmar" autocomplete="new-password" required>
+        </div>
+        <p id="cr-error" class="mensaje-error" role="alert"></p>
+        <button type="submit" class="boton boton-ancho" id="cr-enviar">Crear mi cuenta</button>
       </form>
-    </section>
 
-    <!-- SECCIÓN 2: resumen con totales y gráfico de barras -->
-    <section id="resumen" class="tarjeta">
-      <h2>Resumen</h2>
-      <div class="indicadores">
-        <div class="indicador">
-          <span class="indicador-etiqueta">Total general</span>
-          <strong id="total-general" class="indicador-valor">$ 0</strong>
-        </div>
-        <div class="indicador">
-          <span class="indicador-etiqueta">Este mes</span>
-          <strong id="total-mes" class="indicador-valor">$ 0</strong>
-        </div>
-        <div class="indicador">
-          <span class="indicador-etiqueta">Gastos registrados</span>
-          <strong id="cantidad-gastos" class="indicador-valor">0</strong>
-        </div>
-      </div>
-      <h3>Gasto por categoría</h3>
-      <ul id="grafico-categorias" class="grafico"></ul>
-      <p id="grafico-vacio" class="vacio">Cuando registres gastos, aquí verás en qué categoría gastas más.</p>
-    </section>
-
-    <!-- SECCIÓN 3: historial con filtro -->
-    <section id="historial" class="tarjeta">
-      <div class="historial-cabecera">
-        <h2>Historial</h2>
-        <div class="campo campo-filtro">
-          <label for="filtro-categoria">Filtrar</label>
-          <select id="filtro-categoria"></select>
-        </div>
-      </div>
-      <ul id="lista-gastos" class="lista"></ul>
-      <p id="lista-vacia" class="vacio">No hay gastos para mostrar.</p>
-      <button type="button" id="boton-borrar-todo" class="boton boton-peligro">Borrar todos los gastos</button>
-    </section>
-  </main>
-
-  <footer class="pie">
-    <div class="contenedor">
-      <p>Hecho por <strong>Daniel Salomón Palles Atis</strong> · Primer semestre · Ingeniería de Software</p>
-      <p>Materia: Contexto de Software · Desarrollado con apoyo de Claude (Anthropic)</p>
-      <p class="nota">Tus datos se guardan solo en este navegador (localStorage). No se envían a ningún servidor.</p>
+      <p class="acceso-aviso">Tu cuenta y tus gastos se guardan solo en este navegador. No hay servidor: no se envía nada por internet.</p>
     </div>
-  </footer>
+  </section>
 
-  <!-- Primero la lógica (sin HTML), después la interfaz que la usa -->
+  <!-- ============================================================
+       APLICACIÓN (solo visible con la sesión iniciada)
+       ============================================================ -->
+  <div id="aplicacion" class="app" hidden>
+    <!-- Menú lateral (escritorio) -->
+    <aside class="lateral">
+      <p class="lateral-logo"><img src="img/favicon.svg" alt="" width="26" height="26"> Registro de Gastos</p>
+      <nav class="menu" aria-label="Menú principal">
+        <a href="#/inicio" data-ir="inicio"><svg class="icono" aria-hidden="true"><use href="#i-inicio"/></svg> Inicio</a>
+        <button type="button" class="menu-nuevo" data-accion="nuevo-gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo gasto</button>
+        <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg> Mis gastos</a>
+        <button type="button" data-accion="categorias"><svg class="icono" aria-hidden="true"><use href="#i-etiqueta"/></svg> Categorías</button>
+        <a href="#/perfil" data-ir="perfil"><svg class="icono" aria-hidden="true"><use href="#i-usuario"/></svg> Mi perfil</a>
+      </nav>
+      <div class="lateral-usuario">
+        <span class="avatar avatar-chico" data-avatar aria-hidden="true"></span>
+        <span class="lateral-nombre" data-nombre-usuario></span>
+        <button type="button" class="icono-btn" data-accion="salir" aria-label="Cerrar sesión" title="Cerrar sesión"><svg class="icono" aria-hidden="true"><use href="#i-salir"/></svg></button>
+      </div>
+    </aside>
+
+    <!-- Barra superior (celular) -->
+    <header class="barra-movil">
+      <p class="lateral-logo"><img src="img/favicon.svg" alt="" width="24" height="24"> Registro de Gastos</p>
+      <a href="#/perfil" class="barra-perfil" aria-label="Mi perfil"><span class="avatar avatar-chico" data-avatar aria-hidden="true"></span></a>
+    </header>
+
+    <main id="contenido" class="contenido" tabindex="-1">
+
+      <!-- ===== INICIO ===== -->
+      <section id="vista-inicio" data-vista="inicio" aria-labelledby="inicio-titulo">
+        <header class="cabecera-vista">
+          <div>
+            <h1 id="inicio-titulo"></h1>
+            <p id="inicio-fecha" class="fecha-texto"></p>
+          </div>
+          <button type="button" class="boton" data-accion="nuevo-gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo gasto</button>
+        </header>
+
+        <p id="aviso-datos" class="nota-aviso" hidden></p>
+
+        <div class="rejilla-graficos">
+          <!-- GRÁFICO 1: categoría con más gastos -->
+          <article class="tarjeta g-categoria" aria-labelledby="g1-titulo">
+            <div class="tarjeta-cab">
+              <h2 id="g1-titulo">Categoría con más gastos</h2>
+              <div class="segmentos" role="group" aria-label="Periodo del gráfico">
+                <button type="button" data-periodo="mes" aria-pressed="true">Este mes</button>
+                <button type="button" data-periodo="todo" aria-pressed="false">Todo</button>
+              </div>
+            </div>
+            <p id="g1-titular" class="titular"></p>
+            <ul id="g1-grafico" class="barras"></ul>
+            <p id="g1-vacio" class="vacio" hidden></p>
+            <details class="datos-tabla">
+              <summary>Ver datos en tabla</summary>
+              <table>
+                <thead><tr><th scope="col">Categoría</th><th scope="col" class="num">Gasto</th><th scope="col" class="num">%</th><th scope="col" class="num">Gastos</th></tr></thead>
+                <tbody id="g1-tabla"></tbody>
+              </table>
+            </details>
+          </article>
+
+          <!-- GRÁFICO 2: historial del último mes -->
+          <article class="tarjeta g-historial" aria-labelledby="g2-titulo">
+            <div class="tarjeta-cab">
+              <h2 id="g2-titulo">Historial del último mes</h2>
+            </div>
+            <p id="g2-titular" class="titular"></p>
+            <div id="g2-grafico" class="lienzo"></div>
+            <p id="g2-vacio" class="vacio" hidden></p>
+            <details class="datos-tabla">
+              <summary>Ver datos en tabla</summary>
+              <table>
+                <thead><tr><th scope="col">Fecha</th><th scope="col" class="num">Total</th><th scope="col" class="num">Gastos</th></tr></thead>
+                <tbody id="g2-tabla"></tbody>
+              </table>
+            </details>
+          </article>
+
+          <!-- GRÁFICO 3: resumen -->
+          <article class="tarjeta g-resumen" aria-labelledby="g3-titulo">
+            <div class="tarjeta-cab">
+              <h2 id="g3-titulo">Resumen del mes</h2>
+            </div>
+            <p id="g3-titular" class="titular"></p>
+            <ul id="g3-grafico" class="barras"></ul>
+            <dl class="cifras">
+              <div><dt>Promedio por día</dt><dd id="g3-promedio">$ 0</dd></div>
+              <div><dt>Gasto más grande</dt><dd id="g3-mayor">—</dd><small id="g3-mayor-detalle"></small></div>
+              <div><dt>Gastos del mes</dt><dd id="g3-cantidad">0</dd></div>
+              <div><dt>Total registrado</dt><dd id="g3-total">$ 0</dd></div>
+            </dl>
+            <details class="datos-tabla">
+              <summary>Ver datos en tabla</summary>
+              <table>
+                <thead><tr><th scope="col">Dato</th><th scope="col" class="num">Valor</th></tr></thead>
+                <tbody id="g3-tabla"></tbody>
+              </table>
+            </details>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== MIS GASTOS ===== -->
+      <section id="vista-gastos" data-vista="gastos" aria-labelledby="gastos-titulo" hidden>
+        <header class="cabecera-vista">
+          <div>
+            <h1 id="gastos-titulo">Mis gastos</h1>
+            <p id="gastos-resumen" class="fecha-texto"></p>
+          </div>
+          <button type="button" class="boton" data-accion="nuevo-gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo gasto</button>
+        </header>
+        <div class="tarjeta">
+          <div class="campo campo-filtro">
+            <label for="filtro-categoria">Filtrar por categoría</label>
+            <select id="filtro-categoria"></select>
+          </div>
+          <ul id="lista-gastos" class="lista"></ul>
+          <p id="lista-vacia" class="vacio" hidden></p>
+          <button type="button" id="boton-borrar-todo" class="boton boton-peligro" hidden>Borrar todos los gastos</button>
+        </div>
+      </section>
+
+      <!-- ===== PERFIL ===== -->
+      <section id="vista-perfil" data-vista="perfil" aria-labelledby="perfil-titulo" hidden>
+        <header class="cabecera-vista">
+          <div>
+            <h1 id="perfil-titulo">Mi perfil</h1>
+            <p id="perfil-desde" class="fecha-texto"></p>
+          </div>
+        </header>
+
+        <div class="tarjeta perfil-foto">
+          <span class="avatar avatar-grande" data-avatar aria-hidden="true"></span>
+          <div class="perfil-foto-datos">
+            <p class="perfil-nombre" data-nombre-completo></p>
+            <p class="perfil-correo" id="perfil-correo-texto"></p>
+            <div class="botones-fila">
+              <label class="boton boton-sec boton-archivo" for="perfil-foto-archivo">Subir foto</label>
+              <input type="file" id="perfil-foto-archivo" accept="image/*" class="solo-lectores">
+              <button type="button" class="boton boton-sec" id="perfil-quitar-foto" hidden>Quitar foto</button>
+            </div>
+            <small class="ayuda">La foto es opcional. Se recorta en cuadrado y se guarda solo en este navegador.</small>
+            <p id="perfil-foto-error" class="mensaje-error" role="alert"></p>
+          </div>
+        </div>
+
+        <form id="form-perfil" class="tarjeta" novalidate>
+          <h2>Datos personales</h2>
+          <div class="fila">
+            <div class="campo">
+              <label for="pf-nombres">Nombres</label>
+              <input type="text" id="pf-nombres" autocomplete="given-name" maxlength="60" required>
+            </div>
+            <div class="campo">
+              <label for="pf-apellidos">Apellidos</label>
+              <input type="text" id="pf-apellidos" autocomplete="family-name" maxlength="60" required>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="pf-correo">Correo</label>
+            <input type="email" id="pf-correo" readonly aria-describedby="pf-correo-ayuda">
+            <small id="pf-correo-ayuda" class="ayuda">Es tu usuario para ingresar; no se puede cambiar.</small>
+          </div>
+          <div class="fila">
+            <div class="campo">
+              <label for="pf-telefono">Teléfono <span class="opcional">(opcional)</span></label>
+              <input type="tel" id="pf-telefono" autocomplete="tel" inputmode="tel" maxlength="20">
+            </div>
+            <div class="campo">
+              <label for="pf-nacimiento">Fecha de nacimiento <span class="opcional">(opcional)</span></label>
+              <input type="date" id="pf-nacimiento" autocomplete="bday">
+            </div>
+          </div>
+          <div class="fila">
+            <div class="campo">
+              <label for="pf-ciudad">Ciudad <span class="opcional">(opcional)</span></label>
+              <input type="text" id="pf-ciudad" autocomplete="address-level2" maxlength="60">
+            </div>
+            <div class="campo">
+              <label for="pf-ocupacion">Ocupación <span class="opcional">(opcional)</span></label>
+              <input type="text" id="pf-ocupacion" maxlength="60" placeholder="Ej: Estudiante">
+            </div>
+          </div>
+          <p id="pf-error" class="mensaje-error" role="alert"></p>
+          <button type="submit" class="boton">Guardar cambios</button>
+        </form>
+
+        <form id="form-clave" class="tarjeta" novalidate>
+          <h2>Cambiar contraseña</h2>
+          <input type="text" autocomplete="username" hidden tabindex="-1" aria-hidden="true" id="clave-usuario-oculto">
+          <div class="campo">
+            <label for="cc-actual">Contraseña actual</label>
+            <input type="password" id="cc-actual" autocomplete="current-password" required>
+          </div>
+          <div class="fila">
+            <div class="campo">
+              <label for="cc-nueva">Contraseña nueva</label>
+              <input type="password" id="cc-nueva" autocomplete="new-password" required>
+            </div>
+            <div class="campo">
+              <label for="cc-confirmar">Repite la nueva</label>
+              <input type="password" id="cc-confirmar" autocomplete="new-password" required>
+            </div>
+          </div>
+          <p id="cc-error" class="mensaje-error" role="alert"></p>
+          <button type="submit" class="boton boton-sec">Cambiar contraseña</button>
+        </form>
+
+        <div class="tarjeta">
+          <h2>Sesión y cuenta</h2>
+          <div class="botones-fila">
+            <button type="button" class="boton boton-sec" data-accion="salir">Cerrar sesión</button>
+            <button type="button" class="boton boton-peligro-borde" id="boton-borrar-cuenta">Eliminar mi cuenta y mis datos</button>
+          </div>
+        </div>
+      </section>
+
+      <footer class="pie">
+        <p>Hecho por <strong>Daniel Salomón Palles Atis</strong> · Primer semestre · Ingeniería de Software</p>
+        <p>Materia: Contexto de Software · Desarrollado con apoyo de Claude (Anthropic)</p>
+      </footer>
+    </main>
+
+    <!-- Barra de pestañas inferior (celular) -->
+    <nav class="inferior" aria-label="Menú principal">
+      <a href="#/inicio" data-ir="inicio"><svg class="icono" aria-hidden="true"><use href="#i-inicio"/></svg><span>Inicio</span></a>
+      <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg><span>Gastos</span></a>
+      <button type="button" class="inferior-nuevo" data-accion="nuevo-gasto" aria-label="Nuevo gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg></button>
+      <button type="button" data-accion="categorias"><svg class="icono" aria-hidden="true"><use href="#i-etiqueta"/></svg><span>Categorías</span></button>
+      <a href="#/perfil" data-ir="perfil"><svg class="icono" aria-hidden="true"><use href="#i-usuario"/></svg><span>Perfil</span></a>
+    </nav>
+  </div>
+
+  <!-- ============================================================
+       VENTANAS (<dialog>)
+       ============================================================ -->
+
+  <!-- Bienvenida con la fecha actual (aparece tras ingresar) -->
+  <dialog id="dlg-bienvenida" class="ventana ventana-bienvenida" aria-labelledby="bienvenida-titulo">
+    <div class="bienvenida">
+      <span class="avatar avatar-grande" data-avatar aria-hidden="true"></span>
+      <h2 id="bienvenida-titulo"></h2>
+      <p id="bienvenida-fecha" class="bienvenida-fecha"></p>
+      <p id="bienvenida-resumen" class="bienvenida-resumen"></p>
+      <button type="button" class="boton boton-ancho" id="bienvenida-continuar">Ir al inicio</button>
+    </div>
+  </dialog>
+
+  <!-- Frontend "Nuevo gasto": categoría, monto, descripción y fecha -->
+  <dialog id="dlg-gasto" class="ventana" aria-labelledby="gasto-titulo">
+    <form id="form-gasto" novalidate>
+      <header class="ventana-cab">
+        <h2 id="gasto-titulo">Nuevo gasto</h2>
+        <button type="button" class="icono-btn" data-cerrar aria-label="Cerrar"><svg class="icono" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+      </header>
+      <div class="campo">
+        <label for="g-categoria">Categoría</label>
+        <div class="campo-con-boton">
+          <select id="g-categoria" required></select>
+          <button type="button" class="boton boton-sec" id="g-editar-categorias">Editar categorías</button>
+        </div>
+      </div>
+      <div class="campo">
+        <label for="g-monto">Monto (COP)</label>
+        <input type="number" id="g-monto" min="1" step="1" inputmode="numeric" placeholder="Ej: 15000" required>
+      </div>
+      <div class="campo">
+        <label for="g-descripcion">Descripción</label>
+        <input type="text" id="g-descripcion" maxlength="60" placeholder="Ej: Almuerzo en la universidad" autocomplete="off" required>
+      </div>
+      <div class="campo">
+        <label for="g-fecha">Fecha</label>
+        <input type="date" id="g-fecha" required>
+      </div>
+      <p id="g-error" class="mensaje-error" role="alert"></p>
+      <footer class="ventana-pie">
+        <button type="button" class="boton boton-sec" data-cerrar>Cancelar</button>
+        <button type="submit" class="boton">Guardar gasto</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Editor de categorías -->
+  <dialog id="dlg-categorias" class="ventana" aria-labelledby="cat-titulo">
+    <header class="ventana-cab">
+      <h2 id="cat-titulo">Categorías</h2>
+      <button type="button" class="icono-btn" data-cerrar aria-label="Cerrar"><svg class="icono" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+    </header>
+    <p class="ayuda">Crea, renombra o cambia el color de tus categorías. Si borras una, sus gastos pasan a “Otros”.</p>
+    <p id="cat-estado" class="estado-ok" role="status"></p>
+    <ul id="cat-lista" class="cat-lista"></ul>
+    <button type="button" class="boton boton-sec" id="cat-nueva">+ Nueva categoría</button>
+
+    <form id="cat-form" class="cat-form" hidden novalidate aria-labelledby="cat-form-titulo">
+      <h3 id="cat-form-titulo">Nueva categoría</h3>
+      <div class="fila fila-cat">
+        <div class="campo campo-emoji">
+          <label for="cat-emoji">Ícono</label>
+          <input type="text" id="cat-emoji" maxlength="8" autocomplete="off" placeholder="🏷️">
+        </div>
+        <div class="campo">
+          <label for="cat-nombre">Nombre</label>
+          <input type="text" id="cat-nombre" maxlength="24" autocomplete="off" required>
+        </div>
+      </div>
+      <div class="emojis" id="cat-emojis" aria-label="Íconos sugeridos"></div>
+      <fieldset class="colores">
+        <legend>Color</legend>
+        <div id="cat-colores" class="colores-lista"></div>
+      </fieldset>
+      <p id="cat-error" class="mensaje-error" role="alert"></p>
+      <div class="ventana-pie">
+        <button type="button" class="boton boton-sec" id="cat-cancelar">Cancelar</button>
+        <button type="submit" class="boton">Guardar categoría</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <p id="aviso" class="aviso" role="status" aria-live="polite" hidden></p>
+
+  <noscript>
+    <p class="sin-js">Esta página necesita JavaScript activado para funcionar.</p>
+  </noscript>
+
+  <!-- Orden importa: primero lo que no toca el HTML, al final la interfaz que lo usa -->
   <script src="js/logica.js"></script>
+  <script src="js/almacen.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/graficos.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
