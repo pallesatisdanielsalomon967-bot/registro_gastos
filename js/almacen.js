@@ -97,18 +97,35 @@ function borrarSesion() {
 
 // ---------- Datos de cada cuenta ----------
 
-/** Carga categorías y gastos de una cuenta, ya limpios. Devuelve { categorias, gastos, descartados }. */
+/**
+ * Carga los datos de una cuenta, ya limpios: tres catálogos (categorías, fuentes de ingreso,
+ * destinos de ahorro) y tres listas de registros (gastos, ingresos, ahorros).
+ * Las cuentas anteriores a la versión con ingresos no tienen los campos nuevos: se crean vacíos.
+ * Devuelve { ...estado, descartados }.
+ */
 function cargarDatos(idUsuario) {
   const crudo = leerJSON(prefijoDatos(idUsuario), null);
-  const categorias = crudo && Array.isArray(crudo.categorias) && crudo.categorias.length > 0
-    ? limpiarCategorias(crudo.categorias)
-    : categoriasIniciales();
-  const { gastos, descartados } = limpiarGastos(crudo?.gastos, categorias);
-  return { categorias, gastos, descartados };
+  const base = catalogosIniciales();
+  const estado = {};
+  let descartados = 0;
+  for (const tipo of ORDEN_TIPOS) {
+    const { catalogo, registros } = TIPOS[tipo];
+    const lista = crudo && Array.isArray(crudo[catalogo]) && crudo[catalogo].length > 0 ? crudo[catalogo] : base[catalogo];
+    estado[catalogo] = limpiarCategorias(lista);
+    const limpio = limpiarGastos(crudo?.[registros], estado[catalogo]);
+    estado[registros] = limpio.gastos;
+    descartados += limpio.descartados;
+  }
+  return { ...estado, descartados };
 }
 
-function guardarDatos(idUsuario, { categorias, gastos }) {
-  return escribirJSON(prefijoDatos(idUsuario), { categorias, gastos });
+function guardarDatos(idUsuario, estado) {
+  const salida = {};
+  for (const tipo of ORDEN_TIPOS) {
+    salida[TIPOS[tipo].catalogo] = estado[TIPOS[tipo].catalogo];
+    salida[TIPOS[tipo].registros] = estado[TIPOS[tipo].registros];
+  }
+  return escribirJSON(prefijoDatos(idUsuario), salida);
 }
 
 // ---------- Migración desde la versión 1 ----------

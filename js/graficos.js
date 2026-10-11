@@ -76,7 +76,7 @@ const MAX_FILAS_RANKING = 6;
  * Dibuja el ranking dentro de `contenedor`. Muestra las 6 categorías con más gasto
  * y junta el resto en "Otras categorías" (gris), para que el gráfico no se llene.
  */
-function pintarRanking(contenedor, ranking) {
+function pintarRanking(contenedor, ranking, palabras = { singular: "gasto", plural: "gastos", otras: "Otras categorías" }) {
   contenedor.replaceChildren();
   if (ranking.length === 0) return;
 
@@ -88,7 +88,7 @@ function pintarRanking(contenedor, ranking) {
     const porcentaje = resto.reduce((s, f) => s + f.porcentaje, 0);
     filas = [
       ...ranking.slice(0, MAX_FILAS_RANKING - 1),
-      { id: "_resto", nombre: `Otras categorías (${resto.length})`, emoji: "", color: COLOR_NEUTRO, total, cantidad, porcentaje }
+      { id: "_resto", nombre: `${palabras.otras} (${resto.length})`, emoji: "", color: COLOR_NEUTRO, total, cantidad, porcentaje }
     ];
   }
 
@@ -110,7 +110,7 @@ function pintarRanking(contenedor, ranking) {
     const valor = el("span", "barra-valor", formatearDinero(fila.total));
     li.append(etiqueta, pista, valor);
 
-    const detalle = `${formatearDinero(fila.total)} · ${Math.round(fila.porcentaje)} % del total · ${fila.cantidad} ${fila.cantidad === 1 ? "gasto" : "gastos"}`;
+    const detalle = `${formatearDinero(fila.total)} · ${Math.round(fila.porcentaje)} % del total · ${fila.cantidad} ${fila.cantidad === 1 ? palabras.singular : palabras.plural}`;
     li.setAttribute("aria-label", `${fila.nombre}: ${detalle}`);
     conectarTooltip(li, fila.nombre, detalle);
     contenedor.append(li);
@@ -232,4 +232,68 @@ function textoVariacion(resumen) {
   const flecha = resumen.variacion > 0 ? "▲" : "▼";
   const palabra = resumen.variacion > 0 ? "más" : "menos";
   return `${flecha} ${Math.abs(resumen.variacion)} % ${palabra} que el mes pasado`;
+}
+
+// ============================================================
+// GRÁFICO 4 — Ingresos de los últimos 6 meses (columnas apiladas por fuente, SVG)
+// ============================================================
+
+/**
+ * `meses` viene de ingresosPorMes(). Cada columna es un mes; sus tramos son las fuentes.
+ * Cada fuente conserva siempre su color; entre tramos hay 2 px de separación.
+ */
+function pintarIngresos6Meses(contenedor, meses) {
+  contenedor.replaceChildren();
+  const ancho = Math.max(260, Math.floor(contenedor.clientWidth || 520));
+  const alto = ancho < 420 ? 210 : 250;
+  const margen = { arriba: 22, derecha: 8, abajo: 26, izquierda: 46 };
+  const anchoUtil = ancho - margen.izquierda - margen.derecha;
+  const altoUtil = alto - margen.arriba - margen.abajo;
+  const tope = maximoBonito(Math.max(...meses.map((m) => m.total)));
+  const y = (valor) => margen.arriba + altoUtil - (valor / tope) * altoUtil;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${ancho} ${alto}`, width: ancho, height: alto, role: "group", "aria-label": "Ingresos de los últimos 6 meses, por fuente" });
+  for (const valor of [0, tope / 2, tope]) {
+    svg.append(svgEl("line", { class: valor === 0 ? "g-eje" : "g-guia", x1: margen.izquierda, x2: ancho - margen.derecha, y1: y(valor), y2: y(valor) }));
+    const texto = svgEl("text", { class: "g-texto", x: margen.izquierda - 8, y: y(valor) + 4, "text-anchor": "end" });
+    texto.textContent = formatearDineroCorto(valor);
+    svg.append(texto);
+  }
+
+  const banda = anchoUtil / meses.length;
+  const anchoColumna = Math.min(56, Math.max(14, banda - 14));
+  meses.forEach((mes, i) => {
+    const x0 = margen.izquierda + i * banda;
+    const x = x0 + (banda - anchoColumna) / 2;
+    const grupo = svgEl("g", { class: "g-mes", tabindex: 0, role: "img" });
+    const detalle = mes.total === 0
+      ? "Sin ingresos"
+      : [formatearDinero(mes.total), ...mes.porFuente.map((f) => `${f.emoji} ${f.nombre}: ${formatearDinero(f.total)}`)].join("\n");
+    const nombreMes = mes.nombre.charAt(0).toUpperCase() + mes.nombre.slice(1);
+    grupo.setAttribute("aria-label", `${nombreMes}: ${mes.total === 0 ? "sin ingresos" : `${formatearDinero(mes.total)} en ${mes.cantidad} ${mes.cantidad === 1 ? "ingreso" : "ingresos"}`}`);
+    grupo.append(svgEl("rect", { class: "g-zona", x: x0, y: margen.arriba - 16, width: banda, height: altoUtil + 16 }));
+
+    let acumulado = 0;
+    for (const fuente of mes.porFuente) {
+      const yArriba = y(acumulado + fuente.total);
+      const yAbajo = y(acumulado);
+      grupo.append(svgEl("rect", {
+        class: "g-segmento", x, y: yArriba, width: anchoColumna, height: Math.max(1, yAbajo - yArriba),
+        style: `fill: var(--cat-${fuente.color})`
+      }));
+      acumulado += fuente.total;
+    }
+    if (mes.total > 0) {
+      const t = svgEl("text", { class: "g-total-mes", x: x0 + banda / 2, y: y(mes.total) - 5, "text-anchor": "middle" });
+      t.textContent = formatearDineroCorto(mes.total);
+      grupo.append(t);
+    }
+    conectarTooltip(grupo, nombreMes, detalle);
+    svg.append(grupo);
+
+    const etiqueta = svgEl("text", { class: "g-texto", x: x0 + banda / 2, y: alto - 6, "text-anchor": "middle" });
+    etiqueta.textContent = i === meses.length - 1 ? `${mes.etiqueta} (hoy)` : mes.etiqueta;
+    svg.append(etiqueta);
+  });
+  contenedor.append(svg);
 }

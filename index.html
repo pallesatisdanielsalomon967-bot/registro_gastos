@@ -22,6 +22,10 @@
       <symbol id="i-etiqueta" viewBox="0 0 24 24"><path d="M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"/></symbol>
       <symbol id="i-usuario" viewBox="0 0 24 24"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
       <symbol id="i-salir" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></symbol>
+      <symbol id="i-ingreso" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+      <symbol id="i-ahorro" viewBox="0 0 24 24"><path d="M4 10h16v10H4zM8 10V7a4 4 0 018 0v3M12 14v2"/></symbol>
+      <symbol id="i-microfono" viewBox="0 0 24 24"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zM6 11a6 6 0 0012 0M12 17v4"/></symbol>
+      <symbol id="i-camara" viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 100-8 4 4 0 000 8z"/></symbol>
       <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     </defs>
   </svg>
@@ -112,7 +116,9 @@
       <nav class="menu" aria-label="Menú principal">
         <a href="#/inicio" data-ir="inicio"><svg class="icono" aria-hidden="true"><use href="#i-inicio"/></svg> Inicio</a>
         <button type="button" class="menu-nuevo" data-accion="nuevo-gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo gasto</button>
-        <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg> Mis gastos</a>
+        <button type="button" data-accion="nuevo-ingreso"><svg class="icono" aria-hidden="true"><use href="#i-ingreso"/></svg> Registrar ingreso</button>
+        <button type="button" data-accion="nuevo-ahorro"><svg class="icono" aria-hidden="true"><use href="#i-ahorro"/></svg> Registrar ahorro</button>
+        <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg> Movimientos</a>
         <button type="button" data-accion="categorias"><svg class="icono" aria-hidden="true"><use href="#i-etiqueta"/></svg> Categorías</button>
         <a href="#/perfil" data-ir="perfil"><svg class="icono" aria-hidden="true"><use href="#i-usuario"/></svg> Mi perfil</a>
       </nav>
@@ -142,6 +148,14 @@
         </header>
 
         <p id="aviso-datos" class="nota-aviso" hidden></p>
+
+        <!-- Cifras del mes: ingresos, gastos, ahorro y lo que queda -->
+        <dl class="kpis" aria-label="Cifras del mes">
+          <div class="kpi"><dt>Ingresos del mes</dt><dd id="kpi-ingresos">$ 0</dd></div>
+          <div class="kpi"><dt>Gastos del mes</dt><dd id="kpi-gastos">$ 0</dd></div>
+          <div class="kpi"><dt>Ahorro e inversión</dt><dd id="kpi-ahorros">$ 0</dd></div>
+          <div class="kpi kpi-balance"><dt>Balance del mes</dt><dd id="kpi-balance">$ 0</dd><small id="kpi-balance-nota"></small></div>
+        </dl>
 
         <div class="rejilla-graficos">
           <!-- GRÁFICO 1: categoría con más gastos -->
@@ -195,6 +209,7 @@
               <div><dt>Gastos del mes</dt><dd id="g3-cantidad">0</dd></div>
               <div><dt>Total registrado</dt><dd id="g3-total">$ 0</dd></div>
             </dl>
+            <button type="button" class="boton boton-sec boton-whatsapp" id="g3-whatsapp">Enviar resumen por WhatsApp</button>
             <details class="datos-tabla">
               <summary>Ver datos en tabla</summary>
               <table>
@@ -203,26 +218,73 @@
               </table>
             </details>
           </article>
+
+          <!-- GRÁFICO 4: ingresos de los últimos 6 meses -->
+          <article class="tarjeta g-ingresos" aria-labelledby="g4-titulo">
+            <div class="tarjeta-cab">
+              <h2 id="g4-titulo">Ingresos de los últimos 6 meses</h2>
+            </div>
+            <p id="g4-titular" class="titular"></p>
+            <div id="g4-grafico" class="lienzo"></div>
+            <ul id="g4-leyenda" class="leyenda" aria-label="Fuentes de ingreso"></ul>
+            <p id="g4-nota" class="ayuda"></p>
+            <p id="g4-vacio" class="vacio" hidden></p>
+            <details class="datos-tabla">
+              <summary>Ver datos en tabla</summary>
+              <table>
+                <thead><tr><th scope="col">Mes</th><th scope="col" class="num">Ingresos</th><th scope="col">Fuentes</th></tr></thead>
+                <tbody id="g4-tabla"></tbody>
+              </table>
+            </details>
+          </article>
+
+          <!-- Ahorros e inversiones -->
+          <article class="tarjeta g-ahorros" aria-labelledby="g5-titulo">
+            <div class="tarjeta-cab">
+              <h2 id="g5-titulo">Ahorro e inversión</h2>
+            </div>
+            <p id="g5-titular" class="titular"></p>
+            <ul id="g5-grafico" class="barras"></ul>
+            <p id="g5-vacio" class="vacio" hidden></p>
+            <details class="datos-tabla">
+              <summary>Ver datos en tabla</summary>
+              <table>
+                <thead><tr><th scope="col">Destino</th><th scope="col" class="num">Total</th><th scope="col" class="num">%</th><th scope="col" class="num">Registros</th></tr></thead>
+                <tbody id="g5-tabla"></tbody>
+              </table>
+            </details>
+          </article>
         </div>
       </section>
 
-      <!-- ===== MIS GASTOS ===== -->
+      <!-- ===== MOVIMIENTOS ===== -->
       <section id="vista-gastos" data-vista="gastos" aria-labelledby="gastos-titulo" hidden>
         <header class="cabecera-vista">
           <div>
-            <h1 id="gastos-titulo">Mis gastos</h1>
+            <h1 id="gastos-titulo">Movimientos</h1>
             <p id="gastos-resumen" class="fecha-texto"></p>
           </div>
           <button type="button" class="boton" data-accion="nuevo-gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo gasto</button>
         </header>
         <div class="tarjeta">
-          <div class="campo campo-filtro">
-            <label for="filtro-categoria">Filtrar por categoría</label>
-            <select id="filtro-categoria"></select>
+          <div class="fila">
+            <div class="campo campo-filtro">
+              <label for="filtro-tipo">Mostrar</label>
+              <select id="filtro-tipo">
+                <option value="todos">Todos los movimientos</option>
+                <option value="gasto">Solo gastos</option>
+                <option value="ingreso">Solo ingresos</option>
+                <option value="ahorro">Solo ahorros e inversiones</option>
+              </select>
+            </div>
+            <div class="campo campo-filtro" id="campo-filtro-categoria" hidden>
+              <label for="filtro-categoria" id="filtro-categoria-etiqueta">Filtrar por categoría</label>
+              <select id="filtro-categoria"></select>
+            </div>
           </div>
           <ul id="lista-gastos" class="lista"></ul>
           <p id="lista-vacia" class="vacio" hidden></p>
-          <button type="button" id="boton-borrar-todo" class="boton boton-peligro" hidden>Borrar todos los gastos</button>
+          <button type="button" id="boton-borrar-todo" class="boton boton-peligro" hidden>Borrar todos los movimientos</button>
         </div>
       </section>
 
@@ -330,7 +392,7 @@
     <!-- Barra de pestañas inferior (celular) -->
     <nav class="inferior" aria-label="Menú principal">
       <a href="#/inicio" data-ir="inicio"><svg class="icono" aria-hidden="true"><use href="#i-inicio"/></svg><span>Inicio</span></a>
-      <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg><span>Gastos</span></a>
+      <a href="#/gastos" data-ir="gastos"><svg class="icono" aria-hidden="true"><use href="#i-lista"/></svg><span>Movimientos</span></a>
       <button type="button" class="inferior-nuevo" data-accion="nuevo-gasto" aria-label="Nuevo gasto"><svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg></button>
       <button type="button" data-accion="categorias"><svg class="icono" aria-hidden="true"><use href="#i-etiqueta"/></svg><span>Categorías</span></button>
       <a href="#/perfil" data-ir="perfil"><svg class="icono" aria-hidden="true"><use href="#i-usuario"/></svg><span>Perfil</span></a>
@@ -352,15 +414,39 @@
     </div>
   </dialog>
 
-  <!-- Frontend "Nuevo gasto": categoría, monto, descripción y fecha -->
+  <!-- Frontend "Nuevo gasto / ingreso / ahorro": opción, monto, descripción y fecha -->
   <dialog id="dlg-gasto" class="ventana" aria-labelledby="gasto-titulo">
     <form id="form-gasto" novalidate>
       <header class="ventana-cab">
         <h2 id="gasto-titulo">Nuevo gasto</h2>
         <button type="button" class="icono-btn" data-cerrar aria-label="Cerrar"><svg class="icono" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
       </header>
+
+      <div class="segmentos segmentos-ancho" role="group" aria-label="Tipo de movimiento">
+        <button type="button" data-tipo="gasto" aria-pressed="true">Gasto</button>
+        <button type="button" data-tipo="ingreso" aria-pressed="false">Ingreso</button>
+        <button type="button" data-tipo="ahorro" aria-pressed="false">Ahorro / inversión</button>
+      </div>
+
+      <!-- Tres formas de cargar los datos sin escribir: foto, voz o frase pegada -->
+      <div class="escaner">
+        <div class="botones-fila">
+          <label class="boton boton-sec boton-archivo" for="g-recibo"><svg class="icono" aria-hidden="true"><use href="#i-camara"/></svg> Escanear recibo</label>
+          <input type="file" id="g-recibo" accept="image/*" class="solo-lectores" aria-describedby="g-escaner-estado">
+          <button type="button" class="boton boton-sec" id="g-dictar"><svg class="icono" aria-hidden="true"><use href="#i-microfono"/></svg> <span id="g-dictar-texto">Dictar</span></button>
+        </div>
+        <div class="campo campo-frase">
+          <label for="g-frase">Frase (dictada, escrita o pegada de WhatsApp)</label>
+          <div class="campo-con-boton">
+            <input type="text" id="g-frase" maxlength="200" autocomplete="off" placeholder="Ej: Gasté quince mil en almuerzo ayer">
+            <button type="button" class="boton boton-sec" id="g-interpretar">Interpretar</button>
+          </div>
+        </div>
+        <p id="g-escaner-estado" class="ayuda" role="status"></p>
+      </div>
+
       <div class="campo">
-        <label for="g-categoria">Categoría</label>
+        <label for="g-categoria" id="g-categoria-etiqueta">Categoría</label>
         <div class="campo-con-boton">
           <select id="g-categoria" required></select>
           <button type="button" class="boton boton-sec" id="g-editar-categorias">Editar categorías</button>
@@ -381,7 +467,7 @@
       <p id="g-error" class="mensaje-error" role="alert"></p>
       <footer class="ventana-pie">
         <button type="button" class="boton boton-sec" data-cerrar>Cancelar</button>
-        <button type="submit" class="boton">Guardar gasto</button>
+        <button type="submit" class="boton" id="g-guardar">Guardar gasto</button>
       </footer>
     </form>
   </dialog>
@@ -389,13 +475,18 @@
   <!-- Editor de categorías -->
   <dialog id="dlg-categorias" class="ventana" aria-labelledby="cat-titulo">
     <header class="ventana-cab">
-      <h2 id="cat-titulo">Categorías</h2>
+      <h2 id="cat-titulo">Categorías, fuentes y destinos</h2>
       <button type="button" class="icono-btn" data-cerrar aria-label="Cerrar"><svg class="icono" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
     </header>
-    <p class="ayuda">Crea, renombra o cambia el color de tus categorías. Si borras una, sus gastos pasan a “Otros”.</p>
+    <div class="segmentos segmentos-ancho" role="group" aria-label="Qué lista editar">
+      <button type="button" data-cat-tipo="gasto" aria-pressed="true">Categorías de gastos</button>
+      <button type="button" data-cat-tipo="ingreso" aria-pressed="false">Fuentes de ingreso</button>
+      <button type="button" data-cat-tipo="ahorro" aria-pressed="false">Destinos de ahorro</button>
+    </div>
+    <p class="ayuda" id="cat-ayuda"></p>
     <p id="cat-estado" class="estado-ok" role="status"></p>
     <ul id="cat-lista" class="cat-lista"></ul>
-    <button type="button" class="boton boton-sec" id="cat-nueva">+ Nueva categoría</button>
+    <button type="button" class="boton boton-sec" id="cat-nueva">+ Nueva opción</button>
 
     <form id="cat-form" class="cat-form" hidden novalidate aria-labelledby="cat-form-titulo">
       <h3 id="cat-form-titulo">Nueva categoría</h3>
@@ -420,6 +511,24 @@
         <button type="submit" class="boton">Guardar categoría</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Compartir el resumen por WhatsApp: se ve y se puede editar antes de enviar -->
+  <dialog id="dlg-whatsapp" class="ventana" aria-labelledby="wa-titulo">
+    <header class="ventana-cab">
+      <h2 id="wa-titulo">Enviar resumen por WhatsApp</h2>
+      <button type="button" class="icono-btn" data-cerrar aria-label="Cerrar"><svg class="icono" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+    </header>
+    <p class="ayuda">Este es el mensaje que se enviará. Puedes editarlo o quitar lo que no quieras compartir. Al tocar el botón se abre WhatsApp y tú eliges el contacto: no se envía nada sin que lo confirmes allí.</p>
+    <div class="campo">
+      <label for="wa-texto">Mensaje</label>
+      <textarea id="wa-texto" rows="9" maxlength="1000"></textarea>
+    </div>
+    <p id="wa-estado" class="estado-ok" role="status"></p>
+    <div class="ventana-pie">
+      <button type="button" class="boton boton-sec" id="wa-copiar">Copiar texto</button>
+      <a class="boton" id="wa-enlace" href="https://wa.me/" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>
+    </div>
   </dialog>
 
   <div id="tooltip" class="tooltip" role="tooltip" hidden></div>

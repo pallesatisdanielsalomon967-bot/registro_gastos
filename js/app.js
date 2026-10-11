@@ -19,10 +19,12 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- Estado de la aplicación ----------
 let usuario = null;                                   // cuenta con la sesión abierta
-let estado = { categorias: [], gastos: [] };          // datos de esa cuenta
+let estado = estadoVacio();                           // datos de esa cuenta: 3 catálogos + 3 listas de registros
+let tipoActual = "gasto";                             // tipo del formulario abierto: gasto | ingreso | ahorro
+let catalogoEditando = "gasto";                       // pestaña abierta en el editor de opciones
+const ultimas = { gasto: "", ingreso: "", ahorro: "" }; // última opción elegida de cada tipo
 let descartadosAlCargar = 0;
 let periodoRanking = "mes";                           // "mes" | "todo"
-let ultimaCategoria = "";
 let idCategoriaEditando = null;                       // null = se está creando una nueva
 let confirmandoGasto = null;                          // id del gasto con el botón en "¿Borrar?"
 let temporizadorGasto = null;
@@ -32,7 +34,17 @@ let temporizadorCategoria = null;
 let confirmandoCategoria = null;
 let temporizadorAviso = null;
 let diasHistorial = [];
-let categoriaRecienCreada = null;                     // para dejarla elegida en "Nuevo gasto"
+let categoriaRecienCreada = null;                     // { tipo, id } para dejarla elegida en el formulario
+
+function estadoVacio() {
+  return { categorias: [], gastos: [], fuentes: [], ingresos: [], destinos: [], ahorros: [] };
+}
+
+/** Se queda solo con los seis campos de datos (sin `descartados`). */
+function estadoDe(cargado) {
+  const { descartados, ...datos } = cargado;
+  return datos;
+}
 
 // ---------- Avisos breves ----------
 function mostrarAviso(texto) {
@@ -168,7 +180,7 @@ $("form-crear").addEventListener("submit", async (e) => {
 
   // Si el navegador tenía gastos de la versión 1 (sin cuentas), pasan a esta primera cuenta
   const pendientes = gastosPendientesDeImportar();
-  if (pendientes.length > 0 && guardarDatos(resultado.usuario.id, { categorias: categoriasIniciales(), gastos: pendientes })) {
+  if (pendientes.length > 0 && guardarDatos(resultado.usuario.id, { ...estadoVacio(), ...catalogosIniciales(), gastos: pendientes })) {
     marcarLegadoReclamado();
   }
   guardarSesion(resultado.usuario.id, false);
@@ -182,10 +194,10 @@ $("form-crear").addEventListener("submit", async (e) => {
 function entrarEnAplicacion(cuenta, { bienvenida = false, importados = 0 } = {}) {
   usuario = cuenta;
   const cargado = cargarDatos(cuenta.id);
-  estado = { categorias: cargado.categorias, gastos: cargado.gastos };
+  estado = estadoDe(cargado);
   descartadosAlCargar = cargado.descartados;
   periodoRanking = "mes";
-  ultimaCategoria = "";
+  for (const t of ORDEN_TIPOS) ultimas[t] = "";
 
   $("pantalla-acceso").hidden = true;
   $("aplicacion").hidden = false;
@@ -206,14 +218,14 @@ function abrirBienvenida(importados = 0) {
   $("bienvenida-fecha").textContent = fechaLarga(ahora);
 
   const hoy = fechaDeHoy();
-  const delMes = estado.gastos.filter((g) => g.fecha.slice(0, 7) === hoy.slice(0, 7));
+  const f = totalesFinancieros(estado, hoy);
   let resumen;
-  if (estado.gastos.length === 0) {
-    resumen = "Aún no tienes gastos registrados. Empieza con el primero cuando quieras.";
-  } else if (delMes.length === 0) {
-    resumen = "Todavía no has registrado gastos este mes.";
+  if (!ORDEN_TIPOS.some((t) => registrosDe(t).length > 0)) {
+    resumen = "Aún no tienes movimientos registrados. Empieza con el primero cuando quieras.";
+  } else if (f.ingresos + f.gastos + f.ahorros === 0) {
+    resumen = "Todavía no has registrado movimientos este mes.";
   } else {
-    resumen = `Este mes llevas ${formatearDinero(calcularTotal(delMes))} en ${delMes.length} ${delMes.length === 1 ? "gasto" : "gastos"}.`;
+    resumen = `Este mes llevas ${formatearDinero(f.ingresos)} de ingresos, ${formatearDinero(f.gastos)} en gastos y ${formatearDinero(f.ahorros)} de ahorro e inversión.`;
   }
   if (importados > 0) {
     resumen += ` Importé los ${importados} gastos que tenías guardados en este navegador.`;
@@ -234,7 +246,8 @@ function salir() {
   borrarSesion();
   try { sessionStorage.removeItem(CLAVE_SALUDO); } catch { /* nada */ }
   usuario = null;
-  estado = { categorias: [], gastos: [] };
+  estado = estadoVacio();
+  detenerDictado();
   history.replaceState(null, "", location.pathname + location.search); // quita el "#/..." de la dirección
   mostrarAcceso();
   window.scrollTo(0, 0);
@@ -259,7 +272,7 @@ function mostrarVista() {
     if (enlace.dataset.ir === actual) enlace.setAttribute("aria-current", "page");
     else enlace.removeAttribute("aria-current");
   }
-  const titulos = { inicio: "Inicio", gastos: "Mis gastos", perfil: "Mi perfil" };
+  const titulos = { inicio: "Inicio", gastos: "Movimientos", perfil: "Mi perfil" };
   document.title = `${titulos[actual]} · Registro de Gastos`;
   renderVista(actual);
 }
@@ -287,7 +300,9 @@ document.addEventListener("click", (e) => {
   const boton = e.target.closest("[data-accion]");
   if (!boton) return;
   const accion = boton.dataset.accion;
-  if (accion === "nuevo-gasto") abrirNuevoGasto();
+  if (accion === "nuevo-gasto") abrirFormulario("gasto");
+  else if (accion === "nuevo-ingreso") abrirFormulario("ingreso");
+  else if (accion === "nuevo-ahorro") abrirFormulario("ahorro");
   else if (accion === "categorias") abrirCategorias();
   else if (accion === "salir") salir();
 });
@@ -323,24 +338,42 @@ function pintarUsuario() {
 }
 
 // ============================================================
-// 5. CATEGORÍAS: listas desplegables y editor
+// 5. CATÁLOGOS EDITABLES: categorías de gasto, fuentes de ingreso y destinos de ahorro
 // ============================================================
 
-/** Llena una lista desplegable con las categorías actuales. */
-function llenarSelect(select, { primera, valor, conNueva = false }) {
+const NOMBRE_OPCION = { gasto: "categoría", ingreso: "fuente de ingreso", ahorro: "destino de ahorro" };
+const AYUDA_CATALOGO = {
+  gasto: "Las categorías ordenan tus gastos. Cámbiales el nombre, el ícono o el color cuando quieras.",
+  ingreso: "Las fuentes dicen de dónde viene tu dinero. Crea las tuyas: beca, arriendo, clases particulares…",
+  ahorro: "Los destinos dicen a dónde va lo que ahorras o inviertes: una meta, un CDT, un fondo…"
+};
+
+const catalogoDe = (tipo) => estado[TIPOS[tipo].catalogo];
+const registrosDe = (tipo) => estado[TIPOS[tipo].registros];
+
+/** Llena una lista desplegable con las opciones del catálogo del tipo indicado. */
+function llenarSelect(select, { tipo, primera, valor, conNueva = false }) {
+  const catalogo = catalogoDe(tipo);
   select.replaceChildren(new Option(primera.texto, primera.valor));
-  for (const c of estado.categorias) select.append(new Option(`${c.emoji} ${c.nombre}`, c.id));
-  if (conNueva) select.append(new Option("＋ Nueva categoría…", "__nueva"));
-  select.value = estado.categorias.some((c) => c.id === valor) || valor === "todas" ? valor : primera.valor;
+  for (const c of catalogo) select.append(new Option(`${c.emoji} ${c.nombre}`, c.id));
+  if (conNueva) select.append(new Option(`＋ Nueva ${NOMBRE_OPCION[tipo]}…`, "__nueva"));
+  select.value = catalogo.some((c) => c.id === valor) || valor === "todas" ? valor : primera.valor;
 }
 
 function rellenarCategorias() {
   llenarSelect($("g-categoria"), {
-    primera: { texto: "Elige una…", valor: "" }, valor: $("g-categoria").value, conNueva: true
+    tipo: tipoActual, primera: { texto: "Elige una…", valor: "" }, valor: $("g-categoria").value, conNueva: true
   });
-  llenarSelect($("filtro-categoria"), {
-    primera: { texto: "Todas las categorías", valor: "todas" }, valor: $("filtro-categoria").value || "todas"
-  });
+  const filtrando = filtroTipoActual() !== "todos";
+  $("campo-filtro-categoria").hidden = !filtrando;
+  if (filtrando) {
+    const t = filtroTipoActual();
+    $("filtro-categoria-etiqueta").textContent = `Filtrar por ${t === "gasto" ? "categoría" : t === "ingreso" ? "fuente" : "destino"}`;
+    llenarSelect($("filtro-categoria"), {
+      tipo: t, primera: { texto: t === "gasto" ? "Todas las categorías" : t === "ingreso" ? "Todas las fuentes" : "Todos los destinos", valor: "todas" },
+      valor: $("filtro-categoria").value || "todas"
+    });
+  }
 }
 
 function crearOpcionesDeColor() {
@@ -366,24 +399,45 @@ function crearOpcionesDeColor() {
   }
 }
 
-function abrirCategorias({ nueva = false } = {}) {
+function pintarPestanasCatalogo() {
+  for (const b of document.querySelectorAll("[data-cat-tipo]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.catTipo === catalogoEditando));
+  }
+  $("cat-ayuda").textContent = AYUDA_CATALOGO[catalogoEditando];
+}
+
+function abrirCategorias({ nueva = false, tipo = null } = {}) {
+  catalogoEditando = tipo ?? ($("dlg-gasto").open ? tipoActual : catalogoEditando);
   $("cat-estado").textContent = "";
   ocultarFormCategoria();
+  pintarPestanasCatalogo();
   renderCategorias();
   if (!$("dlg-categorias").open) $("dlg-categorias").showModal();
   if (nueva) mostrarFormCategoria(null);
 }
 
-function renderCategorias() {
-  const conteo = new Map();
-  for (const g of estado.gastos) conteo.set(g.categoria, (conteo.get(g.categoria) ?? 0) + 1);
+for (const boton of document.querySelectorAll("[data-cat-tipo]")) {
+  boton.addEventListener("click", () => {
+    catalogoEditando = boton.dataset.catTipo;
+    confirmandoCategoria = null;
+    $("cat-estado").textContent = "";
+    ocultarFormCategoria();
+    pintarPestanasCatalogo();
+    renderCategorias();
+  });
+}
 
-  const filas = estado.categorias.map((c) => {
+function renderCategorias() {
+  const tipo = catalogoEditando;
+  const conteo = new Map();
+  for (const g of registrosDe(tipo)) conteo.set(g.categoria, (conteo.get(g.categoria) ?? 0) + 1);
+  const palabra = (n) => `${n} ${n === 1 ? TIPOS[tipo].nombre.toLowerCase() : TIPOS[tipo].plural}`;
+
+  const filas = catalogoDe(tipo).map((c) => {
     const li = el("li", "cat-fila");
     li.style.setProperty("--c", `var(--cat-${c.color})`);
-    const cantidad = conteo.get(c.id) ?? 0;
     const nombre = el("span", "cat-nombre", c.nombre);
-    nombre.append(el("small", "", `${cantidad} ${cantidad === 1 ? "gasto" : "gastos"}`));
+    nombre.append(el("small", "", palabra(conteo.get(c.id) ?? 0)));
     li.append(el("span", "cat-marca"), el("span", "cat-emoji", c.emoji), nombre);
 
     const editar = el("button", "cat-editar", "Editar");
@@ -406,11 +460,12 @@ function renderCategorias() {
 }
 
 function mostrarFormCategoria(categoria) {
+  const tipo = catalogoEditando;
   idCategoriaEditando = categoria ? categoria.id : null;
-  $("cat-form-titulo").textContent = categoria ? `Editar “${categoria.nombre}”` : "Nueva categoría";
+  $("cat-form-titulo").textContent = categoria ? `Editar “${categoria.nombre}”` : `Nueva ${NOMBRE_OPCION[tipo]}`;
   $("cat-nombre").value = categoria ? categoria.nombre : "";
   $("cat-emoji").value = categoria ? categoria.emoji : "";
-  const color = categoria ? categoria.color : siguienteColorLibre(estado.categorias);
+  const color = categoria ? categoria.color : siguienteColorLibre(catalogoDe(tipo));
   const radio = document.querySelector(`input[name="cat-color"][value="${color}"]`);
   if (radio) radio.checked = true;
   $("cat-error").textContent = "";
@@ -431,10 +486,12 @@ $("cat-nueva").addEventListener("click", () => {
 $("cat-cancelar").addEventListener("click", ocultarFormCategoria);
 
 $("cat-lista").addEventListener("click", (e) => {
+  const tipo = catalogoEditando;
+  const T = TIPOS[tipo];
   const editar = e.target.closest("[data-editar]");
   if (editar) {
     $("cat-estado").textContent = "";
-    mostrarFormCategoria(buscarCategoria(estado.categorias, editar.dataset.editar));
+    mostrarFormCategoria(buscarCategoria(catalogoDe(tipo), editar.dataset.editar));
     return;
   }
   const borrar = e.target.closest("[data-eliminar]");
@@ -447,21 +504,21 @@ $("cat-lista").addEventListener("click", (e) => {
     clearTimeout(temporizadorCategoria);
     temporizadorCategoria = setTimeout(() => { confirmandoCategoria = null; renderCategorias(); }, 4000);
     renderCategorias();
-    const conGastos = estado.gastos.filter((g) => g.categoria === id).length;
-    $("cat-estado").textContent = conGastos > 0
-      ? `Toca otra vez para borrarla. Sus ${conGastos} ${conGastos === 1 ? "gasto pasará" : "gastos pasarán"} a “Otros”.`
+    const afectados = registrosDe(tipo).filter((g) => g.categoria === id).length;
+    $("cat-estado").textContent = afectados > 0
+      ? `Toca otra vez para borrarla. Sus ${afectados} ${afectados === 1 ? T.nombre.toLowerCase() : T.plural} pasarán a “Otros”.`
       : "Toca otra vez para borrarla.";
     return;
   }
   clearTimeout(temporizadorCategoria);
   confirmandoCategoria = null;
-  const resultado = eliminarCategoria(estado.categorias, estado.gastos, id);
+  const resultado = eliminarCategoria(catalogoDe(tipo), registrosDe(tipo), id);
   if (!resultado) return;
-  if (!confirmarCambio({ categorias: resultado.categorias, gastos: resultado.gastos }, $("cat-estado"))) return;
+  if (!confirmarCambio({ ...estado, [T.catalogo]: resultado.categorias, [T.registros]: resultado.gastos }, $("cat-estado"))) return;
   if (idCategoriaEditando === id) ocultarFormCategoria();
   $("cat-estado").textContent = resultado.movidos > 0
-    ? `Categoría eliminada. ${resultado.movidos} ${resultado.movidos === 1 ? "gasto pasó" : "gastos pasaron"} a “Otros”.`
-    : "Categoría eliminada.";
+    ? `Opción eliminada. ${resultado.movidos} ${resultado.movidos === 1 ? "registro pasó" : "registros pasaron"} a “Otros”.`
+    : "Opción eliminada.";
   renderCategorias();
   rellenarCategorias();
   renderVista();
@@ -469,23 +526,25 @@ $("cat-lista").addEventListener("click", (e) => {
 
 $("cat-form").addEventListener("submit", (e) => {
   e.preventDefault();
+  const tipo = catalogoEditando;
+  const T = TIPOS[tipo];
   const seleccionado = document.querySelector('input[name="cat-color"]:checked');
   const entrada = { nombre: $("cat-nombre").value, emoji: $("cat-emoji").value, color: seleccionado ? seleccionado.value : "" };
-  const problema = validarCategoria(entrada, estado.categorias, idCategoriaEditando);
+  const problema = validarCategoria(entrada, catalogoDe(tipo), idCategoriaEditando);
   if (problema) {
     $("cat-error").textContent = problema;
     return;
   }
   const nueva = idCategoriaEditando === null ? crearCategoria(entrada) : null;
-  const categorias = nueva
-    ? [...estado.categorias, nueva]
-    : actualizarCategoria(estado.categorias, idCategoriaEditando, entrada);
-  if (!confirmarCambio({ categorias, gastos: estado.gastos }, $("cat-error"))) return;
+  const lista = nueva
+    ? [...catalogoDe(tipo), nueva]
+    : actualizarCategoria(catalogoDe(tipo), idCategoriaEditando, entrada);
+  if (!confirmarCambio({ ...estado, [T.catalogo]: lista }, $("cat-error"))) return;
 
   const eraNueva = nueva !== null;
-  if (nueva) categoriaRecienCreada = nueva.id;
+  if (nueva) categoriaRecienCreada = { tipo, id: nueva.id };
   ocultarFormCategoria();
-  $("cat-estado").textContent = eraNueva ? "Categoría creada y guardada." : "Cambios guardados.";
+  $("cat-estado").textContent = eraNueva ? "Opción creada y guardada." : "Cambios guardados.";
   renderCategorias();
   rellenarCategorias();
   renderVista();
@@ -493,69 +552,374 @@ $("cat-form").addEventListener("submit", (e) => {
 
 $("cat-form").addEventListener("input", () => { $("cat-error").textContent = ""; });
 
-// Al cerrar el editor, la lista del formulario "Nuevo gasto" ya está al día (se rellenó al guardar)
 $("dlg-categorias").addEventListener("close", () => {
   confirmandoCategoria = null;
   clearTimeout(temporizadorCategoria);
   rellenarCategorias();
-  // Si se creó una categoría desde "Nuevo gasto", queda elegida para ahorrar un paso
-  if (categoriaRecienCreada && $("dlg-gasto").open) $("g-categoria").value = categoriaRecienCreada;
+  // Si se creó una opción desde el formulario de movimientos, queda elegida para ahorrar un paso
+  if (categoriaRecienCreada && $("dlg-gasto").open && categoriaRecienCreada.tipo === tipoActual) {
+    $("g-categoria").value = categoriaRecienCreada.id;
+  }
   categoriaRecienCreada = null;
 });
 
 // ============================================================
-// 6. FORMULARIO "NUEVO GASTO": categoría, monto, descripción, fecha
+// 6. FORMULARIO DE MOVIMIENTO: gasto, ingreso o ahorro (categoría, monto, descripción, fecha)
 // ============================================================
 
-function abrirNuevoGasto() {
-  if (!usuario) return;
-  $("form-gasto").reset();
+const TEXTOS_TIPO = {
+  gasto:   { titulo: "Nuevo gasto",              editar: "Editar categorías", guardar: "Guardar gasto",   ejemploDesc: "Ej: Almuerzo en la universidad", ejemploFrase: "Ej: Gasté quince mil en almuerzo ayer" },
+  ingreso: { titulo: "Nuevo ingreso",            editar: "Editar fuentes",    guardar: "Guardar ingreso", ejemploDesc: "Ej: Pago de clases particulares", ejemploFrase: "Ej: Me pagaron cien mil por clases hoy" },
+  ahorro:  { titulo: "Nuevo ahorro o inversión", editar: "Editar destinos",   guardar: "Guardar ahorro",  ejemploDesc: "Ej: Aporte al fondo de emergencia", ejemploFrase: "Ej: Ahorré veinte mil para mi meta" }
+};
+
+/** Cambia el tipo del formulario y ajusta títulos, etiquetas y la lista de opciones. */
+function ponerTipo(tipo) {
+  tipoActual = tipo;
+  const textos = TEXTOS_TIPO[tipo];
+  for (const b of document.querySelectorAll("[data-tipo]")) b.setAttribute("aria-pressed", String(b.dataset.tipo === tipo));
+  $("gasto-titulo").textContent = textos.titulo;
+  $("g-categoria-etiqueta").textContent = TIPOS[tipo].campo;
+  $("g-editar-categorias").textContent = textos.editar;
+  $("g-guardar").textContent = textos.guardar;
+  $("g-descripcion").placeholder = textos.ejemploDesc;
+  $("g-frase").placeholder = textos.ejemploFrase;
+  $("g-categoria").value = "";
   rellenarCategorias();
-  $("g-categoria").value = estado.categorias.some((c) => c.id === ultimaCategoria) ? ultimaCategoria : "";
+  $("g-categoria").value = catalogoDe(tipo).some((c) => c.id === ultimas[tipo]) ? ultimas[tipo] : "";
+  $("g-categoria").classList.remove("leido");
+}
+
+function abrirFormulario(tipo) {
+  if (!usuario) return;
+  detenerDictado();
+  $("form-gasto").reset();
+  ponerTipo(tipo);
   const hoy = fechaDeHoy();
   $("g-fecha").value = hoy;
   $("g-fecha").max = hoy; // el calendario no deja elegir fechas futuras
   $("g-error").textContent = "";
+  for (const campo of $("form-gasto").querySelectorAll(".leido")) campo.classList.remove("leido");
+  const dictado = Reconocimiento ? "dicta" : "escribe";
+  mensajeEscaner(`Puedes ${dictado} una frase, pegar un mensaje o fotografiar un recibo, y yo propongo los datos. Tú los revisas antes de guardar.`);
+  prepararBotonDictado();
   if (!$("dlg-gasto").open) $("dlg-gasto").showModal();
   $("g-categoria").focus();
 }
 
-// "＋ Nueva categoría…" dentro de la lista abre el editor ya listo para crear una
+for (const boton of document.querySelectorAll("[data-tipo]")) {
+  boton.addEventListener("click", () => {
+    if (boton.dataset.tipo !== tipoActual) ponerTipo(boton.dataset.tipo);
+  });
+}
+
+// "＋ Nueva …" dentro de la lista abre el editor ya listo para crear una opción
 let categoriaPrevia = "";
 $("g-categoria").addEventListener("focus", () => { categoriaPrevia = $("g-categoria").value; });
 $("g-categoria").addEventListener("change", () => {
   if ($("g-categoria").value === "__nueva") {
     $("g-categoria").value = categoriaPrevia === "__nueva" ? "" : categoriaPrevia;
-    abrirCategorias({ nueva: true });
+    abrirCategorias({ nueva: true, tipo: tipoActual });
   }
   categoriaPrevia = $("g-categoria").value;
 });
-$("g-editar-categorias").addEventListener("click", () => abrirCategorias());
+$("g-editar-categorias").addEventListener("click", () => abrirCategorias({ tipo: tipoActual }));
 
 $("form-gasto").addEventListener("input", () => { $("g-error").textContent = ""; });
 
 $("form-gasto").addEventListener("submit", (e) => {
   e.preventDefault();
+  const tipo = tipoActual;
+  const T = TIPOS[tipo];
   const entrada = {
     categoria: $("g-categoria").value,
     monto: $("g-monto").value,
     descripcion: $("g-descripcion").value,
     fecha: $("g-fecha").value
   };
-  const problema = validarGasto(entrada, estado.categorias);
+  const problema = validarGasto(entrada, catalogoDe(tipo), fechaDeHoy(), tipo);
   if (problema) {
     $("g-error").textContent = problema;
     return;
   }
-  const gasto = crearGasto(entrada);
-  if (!confirmarCambio({ categorias: estado.categorias, gastos: [...estado.gastos, gasto] }, $("g-error"))) return;
+  const registro = crearGasto(entrada);
+  if (!confirmarCambio({ ...estado, [T.registros]: [...registrosDe(tipo), registro] }, $("g-error"))) return;
 
-  ultimaCategoria = gasto.categoria;
-  const categoria = buscarCategoria(estado.categorias, gasto.categoria);
+  ultimas[tipo] = registro.categoria;
+  const opcion = buscarCategoria(catalogoDe(tipo), registro.categoria);
   $("dlg-gasto").close();
-  mostrarAviso(`Gasto guardado: ${formatearDinero(gasto.monto)} en ${categoria.nombre}`);
+  mostrarAviso(`${T.nombre} guardado: ${formatearDinero(registro.monto)} · ${opcion.nombre}`);
   renderVista();
 });
+
+// ============================================================
+// 6a. DICTADO POR VOZ Y FRASES ESCRITAS O PEGADAS
+// ============================================================
+// El navegador convierte la voz en texto (API de reconocimiento de voz). OJO: en Chrome y Edge
+// ese audio se envía al servicio de voz del fabricante; esta página no lo recibe ni lo guarda.
+// La frase resultante se interpreta aquí, en el dispositivo, y solo PROPONE datos.
+
+const Reconocimiento = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition || null;
+let reconocimiento = null;
+let escuchando = false;
+let errorDictado = false;
+
+function prepararBotonDictado() {
+  const boton = $("g-dictar");
+  boton.disabled = !Reconocimiento;
+  boton.classList.remove("escuchando");
+  boton.setAttribute("aria-pressed", "false");
+  $("g-dictar-texto").textContent = Reconocimiento ? "Dictar" : "Dictado no disponible";
+  boton.title = Reconocimiento ? "" : "Este navegador no permite dictar. Escribe o pega la frase.";
+}
+
+function detenerDictado() {
+  if (reconocimiento) {
+    const r = reconocimiento;
+    reconocimiento = null;
+    r.onresult = r.onerror = r.onend = null;
+    try { r.abort(); } catch { /* nada */ }
+  }
+  escuchando = false;
+  if ($("g-dictar")) prepararBotonDictado();
+}
+
+const ERRORES_DICTADO = {
+  "not-allowed": "No tengo permiso para usar el micrófono. Actívalo en el candado de la barra de direcciones y vuelve a intentar.",
+  "service-not-allowed": "Este navegador no deja usar el dictado aquí. Escribe o pega la frase.",
+  "no-speech": "No escuché nada. Acerca el micrófono y prueba de nuevo.",
+  "audio-capture": "No encontré un micrófono disponible.",
+  "network": "El dictado necesita internet (el navegador usa su servicio de voz). Revisa la conexión o escribe la frase.",
+  "language-not-supported": "El navegador no soporta dictado en español."
+};
+
+function iniciarDictado() {
+  if (!Reconocimiento || escuchando) return;
+  const r = new Reconocimiento();
+  r.lang = "es-CO";
+  r.interimResults = true;
+  r.continuous = false;
+  r.maxAlternatives = 1;
+  errorDictado = false;
+  reconocimiento = r;
+
+  r.onresult = (evento) => {
+    let texto = "";
+    for (const resultado of evento.results) texto += resultado[0].transcript;
+    $("g-frase").value = texto.trim().slice(0, 200);
+  };
+  r.onerror = (evento) => {
+    errorDictado = true;
+    mensajeEscaner(ERRORES_DICTADO[evento.error] ?? "El dictado se interrumpió. Prueba otra vez o escribe la frase.", true);
+  };
+  r.onend = () => {
+    const habiaFrase = $("g-frase").value.trim() !== "";
+    escuchando = false;
+    reconocimiento = null;
+    prepararBotonDictado();
+    if (!errorDictado && habiaFrase) interpretarFrase();
+    else if (!errorDictado) mensajeEscaner("No escuché nada. Prueba otra vez o escribe la frase.", true);
+  };
+
+  try {
+    r.start();
+  } catch (problema) {
+    console.warn("No se pudo iniciar el dictado:", problema);
+    reconocimiento = null;
+    mensajeEscaner("No se pudo iniciar el dictado. Escribe o pega la frase.", true);
+    return;
+  }
+  escuchando = true;
+  $("g-frase").value = "";
+  $("g-dictar").classList.add("escuchando");
+  $("g-dictar").setAttribute("aria-pressed", "true");
+  $("g-dictar-texto").textContent = "Detener";
+  mensajeEscaner("Escuchando… di, por ejemplo: “gasté quince mil en almuerzo ayer”. El navegador envía el audio a su servicio de voz.");
+}
+
+$("g-dictar").addEventListener("click", () => {
+  if (escuchando && reconocimiento) reconocimiento.stop(); // al terminar, onend interpreta lo dicho
+  else iniciarDictado();
+});
+
+function interpretarFrase() {
+  const frase = $("g-frase").value.trim();
+  if (frase === "") {
+    mensajeEscaner("Escribe, pega o dicta una frase primero.", true);
+    return;
+  }
+  const leido = parsearDictado(frase, estado, fechaDeHoy(), tipoActual);
+  if (leido.tipo !== tipoActual) ponerTipo(leido.tipo);
+  aplicarDatos(leido, "frase");
+}
+
+$("g-interpretar").addEventListener("click", interpretarFrase);
+$("g-frase").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); interpretarFrase(); } // Enter interpreta, no guarda
+});
+
+
+// ============================================================
+// 6b. ESCANEAR RECIBO (OCR en el propio dispositivo)
+// ============================================================
+// El lector (Tesseract) vive en vendor/tesseract y solo se descarga cuando se usa.
+// La foto NO se sube a ningún sitio ni se guarda: se lee en el navegador y se descarta.
+// El OCR se equivoca, por eso solo PROPONE datos: la persona revisa antes de guardar.
+
+const LADO_MAXIMO_RECIBO = 1800;
+const ESPERA_MAXIMA_OCR_MS = 120000;
+let lectorOcr = null;
+let escaneando = false;
+
+function ruta(relativa) { return new URL(relativa, location.href).href; }
+
+function cargarScript(src) {
+  return new Promise((resolver, rechazar) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = resolver;
+    script.onerror = () => rechazar(new Error(`No se pudo cargar ${src}`));
+    document.head.append(script);
+  });
+}
+
+function mensajeEscaner(texto, esError = false) {
+  const nodo = $("g-escaner-estado");
+  nodo.textContent = texto;
+  nodo.classList.toggle("hay-error", esError);
+}
+
+async function obtenerLector() {
+  if (lectorOcr) return lectorOcr;
+  mensajeEscaner("Preparando el lector (la primera vez descarga unos 6 MB)…");
+  if (!globalThis.Tesseract) await cargarScript(ruta("vendor/tesseract/tesseract.min.js"));
+  lectorOcr = await Tesseract.createWorker("spa", 1, {
+    workerPath: ruta("vendor/tesseract/worker.min.js"),
+    corePath: ruta("vendor/tesseract/"),
+    langPath: ruta("vendor/tesseract/lang"),
+    logger: (m) => {
+      if (m.status === "recognizing text") mensajeEscaner(`Leyendo el recibo… ${Math.round(m.progress * 100)} %`);
+    }
+  });
+  return lectorOcr;
+}
+
+/** Reduce la foto y sube el contraste (gris + estirar niveles): el OCR lee mejor así. */
+async function prepararImagenParaOcr(archivo) {
+  const imagen = await cargarImagen(archivo);
+  const escala = Math.min(1, LADO_MAXIMO_RECIBO / Math.max(imagen.naturalWidth, imagen.naturalHeight));
+  const ancho = Math.max(1, Math.round(imagen.naturalWidth * escala));
+  const alto = Math.max(1, Math.round(imagen.naturalHeight * escala));
+  const lienzo = document.createElement("canvas");
+  lienzo.width = ancho;
+  lienzo.height = alto;
+  const ctx = lienzo.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, ancho, alto);
+  ctx.drawImage(imagen, 0, 0, ancho, alto);
+
+  const pixeles = ctx.getImageData(0, 0, ancho, alto);
+  const d = pixeles.data;
+  let min = 255, max = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const gris = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    d[i] = d[i + 1] = d[i + 2] = gris;
+    if (gris < min) min = gris;
+    if (gris > max) max = gris;
+  }
+  const rango = Math.max(1, max - min);
+  for (let i = 0; i < d.length; i += 4) {
+    const v = Math.round(((d[i] - min) / rango) * 255);
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(pixeles, 0, 0);
+  return lienzo;
+}
+
+function marcarLeido(campo) {
+  campo.classList.add("leido");
+  campo.addEventListener("input", () => campo.classList.remove("leido"), { once: true });
+  campo.addEventListener("change", () => campo.classList.remove("leido"), { once: true });
+}
+
+/** Pone en el formulario los datos propuestos (del recibo o de una frase) y los marca para revisarlos. */
+function aplicarDatos(datosLeidos, origen) {
+  const partes = [];
+  if (origen === "frase") partes.push(`tipo ${TIPOS[tipoActual].nombre.toLowerCase()}`);
+  if (datosLeidos.categoria) {
+    $("g-categoria").value = datosLeidos.categoria;
+    marcarLeido($("g-categoria"));
+    partes.push(`${TIPOS[tipoActual].campo.toLowerCase()} ${buscarCategoria(catalogoDe(tipoActual), datosLeidos.categoria).nombre}`);
+  }
+  if (datosLeidos.monto) {
+    $("g-monto").value = String(datosLeidos.monto);
+    marcarLeido($("g-monto"));
+    partes.push(`monto ${formatearDinero(datosLeidos.monto)}`);
+  }
+  if (datosLeidos.descripcion) {
+    $("g-descripcion").value = datosLeidos.descripcion;
+    marcarLeido($("g-descripcion"));
+    partes.push(`descripción “${datosLeidos.descripcion}”`);
+  }
+  if (datosLeidos.fecha) {
+    $("g-fecha").value = datosLeidos.fecha;
+    marcarLeido($("g-fecha"));
+    partes.push(`fecha ${formatearFecha(datosLeidos.fecha)}`);
+  }
+  if (!datosLeidos.monto && !datosLeidos.descripcion && !datosLeidos.categoria && !datosLeidos.fecha) {
+    mensajeEscaner(origen === "recibo"
+      ? "No pude leer datos claros. Prueba con más luz, sin arrugas y enfocando el total, o escribe los datos a mano."
+      : "No entendí datos claros en esa frase. Prueba con algo como “gasté quince mil en almuerzo ayer”.", true);
+    return;
+  }
+  let aviso = `Propuse: ${partes.join(", ")}. Los campos marcados vienen ${origen === "recibo" ? "del recibo" : "de la frase"}: revísalos antes de guardar.`;
+  if (datosLeidos.origenMonto === "mayor") aviso += " No encontré la línea de TOTAL; tomé el monto más grande, verifícalo.";
+  if (!datosLeidos.monto) aviso += " No encontré el monto: escríbelo tú.";
+  mensajeEscaner(aviso);
+}
+
+$("g-recibo").addEventListener("change", async (e) => {
+  const archivo = e.target.files[0];
+  e.target.value = "";
+  if (!archivo || escaneando) return;
+  if (!archivo.type.startsWith("image/")) {
+    mensajeEscaner("Ese archivo no es una imagen. Elige una foto JPG o PNG.", true);
+    return;
+  }
+  if (archivo.size > PESO_MAXIMO_FOTO) {
+    mensajeEscaner("La imagen pesa más de 10 MB. Elige una más liviana.", true);
+    return;
+  }
+  escaneando = true;
+  $("g-recibo").disabled = true;
+  try {
+    mensajeEscaner("Preparando la imagen…");
+    const imagen = await prepararImagenParaOcr(archivo);
+    const lector = await obtenerLector();
+    mensajeEscaner("Leyendo el recibo…");
+    const resultado = await Promise.race([
+      lector.recognize(imagen),
+      new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("tiempo agotado")), ESPERA_MAXIMA_OCR_MS))
+    ]);
+    aplicarDatos(parsearRecibo(resultado.data.text, catalogoDe(tipoActual), fechaDeHoy(), tipoActual), "recibo");
+  } catch (problema) {
+    console.warn("No se pudo escanear el recibo:", problema);
+    await cerrarLector(); // el lector pudo quedar en mal estado: la próxima vez se crea de nuevo
+    mensajeEscaner("No se pudo leer ese recibo. Puede que tu navegador no sea compatible o que falten los archivos de la carpeta vendor. Escribe los datos a mano.", true);
+  } finally {
+    escaneando = false;
+    $("g-recibo").disabled = false;
+  }
+});
+
+async function cerrarLector() {
+  const lector = lectorOcr;
+  lectorOcr = null;
+  if (lector) { try { await lector.terminate(); } catch { /* nada */ } }
+}
+
+// Al cerrar el formulario se libera la memoria del lector (usa bastante) y se corta el micrófono
+$("dlg-gasto").addEventListener("close", () => { cerrarLector(); detenerDictado(); });
 
 // ============================================================
 // 7. VISTA INICIO: saludo y los 3 gráficos
@@ -573,9 +937,12 @@ function renderInicio() {
   }
 
   const hoy = fechaDeHoy();
+  renderResumenFinanciero(hoy);
   renderGraficoCategorias(hoy);
   renderGraficoHistorial(hoy);
   renderGraficoResumen(hoy);
+  renderGraficoIngresos(hoy);
+  renderGraficoAhorros();
 }
 
 /** Muestra u oculta el mensaje de "sin datos" de un gráfico. */
@@ -695,58 +1062,203 @@ function renderGraficoResumen(hoy) {
   ]);
 }
 
+// ----- Resumen de números del mes (ingresos, gastos, ahorro y balance) -----
+function renderResumenFinanciero(hoy) {
+  const f = totalesFinancieros(estado, hoy);
+  $("kpi-ingresos").textContent = formatearDinero(f.ingresos);
+  $("kpi-gastos").textContent = formatearDinero(f.gastos);
+  $("kpi-ahorros").textContent = formatearDinero(f.ahorros);
+  $("kpi-balance").textContent = `${f.balance < 0 ? "−" : ""}${formatearDinero(Math.abs(f.balance))}`;
+  document.querySelector(".kpi-balance").classList.toggle("negativo", f.balance < 0);
+  $("kpi-balance-nota").textContent = f.balance < 0
+    ? "Gastaste y ahorraste más de lo que entró"
+    : f.balance > 0 ? "Te queda disponible este mes" : "Ingresos − gastos − ahorro";
+}
+
+// ----- Gráfico 4: ingresos de los últimos 6 meses, por fuente -----
+let mesesIngresos = [];
+function renderGraficoIngresos(hoy) {
+  mesesIngresos = ingresosPorMes(estado.ingresos, estado.fuentes, hoy, 6);
+  const suma = mesesIngresos.reduce((s, m) => s + m.total, 0);
+  const hayDatos = suma > 0;
+  $("g4-leyenda").hidden = !hayDatos;
+  $("g4-nota").hidden = !hayDatos;
+
+  if (!hayDatos) {
+    $("g4-titular").textContent = "";
+    alternarVacio("g4-vacio", "g4-grafico", "Registra tu primer ingreso (menú → Registrar ingreso) y aquí verás de dónde viene tu dinero mes a mes.");
+    llenarTabla("g4-tabla", []);
+    return;
+  }
+  alternarVacio("g4-vacio", "g4-grafico", "");
+  const mejor = mesesIngresos.reduce((a, b) => (b.total > a.total ? b : a));
+  $("g4-titular").textContent = `${formatearDinero(suma)} en 6 meses · mejor mes: ${mejor.nombre.split(" de ")[0]} (${formatearDinero(mejor.total)})`;
+  pintarIngresos6Meses($("g4-grafico"), mesesIngresos);
+
+  // La leyenda lleva solo las fuentes que aparecen; el color sigue a la fuente, no a su posición
+  const usadas = estado.fuentes.filter((f) => mesesIngresos.some((m) => m.porFuente.some((p) => p.id === f.id)));
+  $("g4-leyenda").replaceChildren(...usadas.map((f) => {
+    const li = el("li", "leyenda-item");
+    li.style.setProperty("--c", `var(--cat-${f.color})`);
+    li.append(el("span", "leyenda-marca"), el("span", "", `${f.emoji} ${f.nombre}`));
+    return li;
+  }));
+  $("g4-nota").textContent = "El último mes está en curso: puede seguir subiendo.";
+  llenarTabla("g4-tabla", [...mesesIngresos].reverse().map((m) => [
+    m.nombre.charAt(0).toUpperCase() + m.nombre.slice(1),
+    formatearDinero(m.total),
+    m.porFuente.length === 0 ? "—" : m.porFuente.map((p) => `${p.nombre} ${formatearDinero(p.total)}`).join(" · ")
+  ]));
+}
+
+let anchoIngresos = 0;
+new ResizeObserver((entradas) => {
+  const ancho = Math.round(entradas[0].contentRect.width);
+  if (ancho === 0 || ancho === anchoIngresos || mesesIngresos.length === 0 || $("g4-grafico").hidden) return;
+  anchoIngresos = ancho;
+  pintarIngresos6Meses($("g4-grafico"), mesesIngresos);
+}).observe($("g4-grafico"));
+
+// ----- Ahorro e inversión: total acumulado por destino -----
+function renderGraficoAhorros() {
+  const ranking = rankingCategorias(estado.ahorros, estado.destinos);
+  if (ranking.length === 0) {
+    $("g5-titular").textContent = "";
+    alternarVacio("g5-vacio", "g5-grafico", "Registra tu primer ahorro o inversión (menú → Registrar ahorro) y aquí verás a dónde va.");
+    llenarTabla("g5-tabla", []);
+    return;
+  }
+  alternarVacio("g5-vacio", "g5-grafico", "");
+  const f = totalesFinancieros(estado, fechaDeHoy());
+  $("g5-titular").textContent = `${formatearDinero(f.ahorradoTotal)} acumulados · ${formatearDinero(f.ahorros)} este mes`;
+  pintarRanking($("g5-grafico"), ranking, { singular: "registro", plural: "registros", otras: "Otros destinos" });
+  llenarTabla("g5-tabla", ranking.map((r) => [
+    `${r.emoji} ${r.nombre}`, formatearDinero(r.total), `${Math.round(r.porcentaje)} %`, String(r.cantidad)
+  ]));
+}
+
 // ============================================================
-// 8. VISTA MIS GASTOS
+// 7b. COMPARTIR EL RESUMEN POR WHATSAPP
 // ============================================================
+
+function actualizarEnlaceWhatsApp() {
+  // wa.me abre WhatsApp con el mensaje escrito; la persona elige el contacto y confirma el envío
+  $("wa-enlace").href = `https://wa.me/?text=${encodeURIComponent($("wa-texto").value)}`;
+}
+
+$("g3-whatsapp").addEventListener("click", () => {
+  const hoy = fechaDeHoy();
+  const delMes = gastosEntre(estado.gastos, `${hoy.slice(0, 7)}-01`, hoy);
+  $("wa-texto").value = textoResumenWhatsApp({
+    nombre: primerNombre(),
+    hoy,
+    resumen: resumenMes(estado.gastos, hoy),
+    ranking: rankingCategorias(delMes, estado.categorias),
+    formatoDinero: formatearDinero,
+    finanzas: totalesFinancieros(estado, hoy)
+  });
+  $("wa-estado").textContent = "";
+  actualizarEnlaceWhatsApp();
+  $("dlg-whatsapp").showModal();
+});
+
+$("wa-texto").addEventListener("input", actualizarEnlaceWhatsApp);
+
+$("wa-copiar").addEventListener("click", async () => {
+  const texto = $("wa-texto").value;
+  try {
+    await navigator.clipboard.writeText(texto);
+    $("wa-estado").textContent = "Texto copiado.";
+  } catch {
+    $("wa-texto").select(); // si el navegador no deja copiar solo, queda seleccionado para Ctrl+C
+    $("wa-estado").textContent = "Selecciona el texto y cópialo con Ctrl+C.";
+  }
+});
+
+// ============================================================
+// 8. VISTA MOVIMIENTOS (gastos, ingresos y ahorros juntos)
+// ============================================================
+
+const filtroTipoActual = () => $("filtro-tipo").value || "todos";
+
+/** Los tres tipos en una sola lista; cada registro lleva su `tipo`. */
+function listaDeMovimientos() {
+  const todos = [];
+  for (const tipo of ORDEN_TIPOS) for (const r of registrosDe(tipo)) todos.push({ ...r, tipo });
+  return todos;
+}
+
+const PREFIJO_MONTO = { gasto: "−", ingreso: "+", ahorro: "" };
 
 function renderGastos() {
   rellenarCategorias();
-  const filtro = $("filtro-categoria").value || "todas";
-  const visibles = ordenarPorFecha(filtrarPorCategoria(estado.gastos, filtro));
+  const tipo = filtroTipoActual();
+  const categoria = $("filtro-categoria").value || "todas";
+  const hayAlgo = ORDEN_TIPOS.some((t) => registrosDe(t).length > 0);
 
-  $("gastos-resumen").textContent = estado.gastos.length === 0
-    ? "Sin gastos registrados"
-    : `${visibles.length} ${visibles.length === 1 ? "gasto" : "gastos"} · ${formatearDinero(calcularTotal(visibles))}`;
+  let visibles = listaDeMovimientos();
+  if (tipo !== "todos") visibles = visibles.filter((m) => m.tipo === tipo);
+  if (tipo !== "todos" && categoria !== "todas") visibles = visibles.filter((m) => m.categoria === categoria);
+  visibles = ordenarPorFecha(visibles);
 
-  const vacio = estado.gastos.length === 0
-    ? "Aún no registras gastos. Toca “Nuevo gasto” para empezar."
-    : visibles.length === 0 ? "No hay gastos en esta categoría." : "";
+  if (!hayAlgo) {
+    $("gastos-resumen").textContent = "Sin movimientos registrados";
+  } else if (tipo === "todos") {
+    const suma = (t) => calcularTotal(visibles.filter((m) => m.tipo === t));
+    $("gastos-resumen").textContent = `${visibles.length} ${visibles.length === 1 ? "movimiento" : "movimientos"} · Ingresos ${formatearDinero(suma("ingreso"))} · Gastos ${formatearDinero(suma("gasto"))} · Ahorro ${formatearDinero(suma("ahorro"))}`;
+  } else {
+    const T = TIPOS[tipo];
+    $("gastos-resumen").textContent = `${visibles.length} ${visibles.length === 1 ? T.nombre.toLowerCase() : T.plural} · ${formatearDinero(calcularTotal(visibles))}`;
+  }
+
+  let vacio = "";
+  if (!hayAlgo) vacio = "Aún no registras movimientos. Toca “Nuevo gasto” o usa el menú para registrar un ingreso o un ahorro.";
+  else if (visibles.length === 0) vacio = "No hay movimientos con ese filtro.";
   $("lista-vacia").hidden = vacio === "";
   $("lista-vacia").textContent = vacio;
-  $("boton-borrar-todo").hidden = estado.gastos.length === 0;
+  $("boton-borrar-todo").hidden = !hayAlgo;
 
-  $("lista-gastos").replaceChildren(...visibles.map((gasto) => {
-    const categoria = buscarCategoria(estado.categorias, gasto.categoria) ?? buscarCategoria(estado.categorias, ID_OTROS);
-    const li = el("li", "gasto");
-    li.style.setProperty("--c", `var(--cat-${categoria.color})`);
+  $("lista-gastos").replaceChildren(...visibles.map((mov) => {
+    const catalogo = catalogoDe(mov.tipo);
+    const opcion = buscarCategoria(catalogo, mov.categoria) ?? buscarCategoria(catalogo, ID_OTROS);
+    const li = el("li", `gasto gasto-${mov.tipo}`);
+    li.style.setProperty("--c", `var(--cat-${opcion.color})`);
 
-    const icono = el("span", "gasto-icono", categoria.emoji);
+    const icono = el("span", "gasto-icono", opcion.emoji);
     icono.setAttribute("aria-hidden", "true");
 
     const info = el("div", "gasto-info");
     // textContent (y no innerHTML) evita que alguien inyecte código HTML en la página
-    info.append(el("strong", "", gasto.descripcion), el("small", "", `${categoria.nombre} · ${formatearFecha(gasto.fecha)}`));
+    info.append(el("strong", "", mov.descripcion), el("small", "", `${TIPOS[mov.tipo].nombre} · ${opcion.nombre} · ${formatearFecha(mov.fecha)}`));
 
-    const confirmando = confirmandoGasto === gasto.id;
+    const clave = `${mov.tipo}:${mov.id}`;
+    const confirmando = confirmandoGasto === clave;
     const borrar = el("button", confirmando ? "boton-eliminar boton-confirmar" : "boton-eliminar", confirmando ? "¿Borrar?" : "Borrar");
     borrar.type = "button";
-    borrar.dataset.id = gasto.id; // guardamos el id para saber cuál borrar
-    borrar.setAttribute("aria-label", `Borrar ${gasto.descripcion}`);
+    borrar.dataset.id = mov.id; // guardamos tipo e id para saber cuál borrar
+    borrar.dataset.tipo = mov.tipo;
+    borrar.setAttribute("aria-label", `Borrar ${mov.descripcion}`);
 
-    li.append(icono, info, el("span", "gasto-monto", formatearDinero(gasto.monto)), borrar);
+    const monto = el("span", `gasto-monto monto-${mov.tipo}`, `${PREFIJO_MONTO[mov.tipo]}${formatearDinero(mov.monto)}`);
+    li.append(icono, info, monto, borrar);
     return li;
   }));
 }
 
+$("filtro-tipo").addEventListener("change", () => {
+  $("filtro-categoria").value = "todas"; // las opciones del filtro cambian con el tipo
+  renderGastos();
+});
 $("filtro-categoria").addEventListener("change", renderGastos);
 
 // "Delegación de eventos": un solo escuchador en la lista atiende todos los botones
 $("lista-gastos").addEventListener("click", (e) => {
   const boton = e.target.closest(".boton-eliminar");
   if (!boton) return;
-  const id = boton.dataset.id;
-  if (confirmandoGasto !== id) {
-    confirmandoGasto = id;
+  const { id, tipo } = boton.dataset;
+  const clave = `${tipo}:${id}`;
+  if (confirmandoGasto !== clave) {
+    confirmandoGasto = clave;
     clearTimeout(temporizadorGasto);
     temporizadorGasto = setTimeout(() => { confirmandoGasto = null; renderGastos(); }, 4000);
     renderGastos();
@@ -754,33 +1266,35 @@ $("lista-gastos").addEventListener("click", (e) => {
   }
   clearTimeout(temporizadorGasto);
   confirmandoGasto = null;
-  if (!confirmarCambio({ categorias: estado.categorias, gastos: estado.gastos.filter((g) => g.id !== id) }, $("lista-vacia"))) {
+  const T = TIPOS[tipo];
+  if (!confirmarCambio({ ...estado, [T.registros]: registrosDe(tipo).filter((g) => g.id !== id) }, $("lista-vacia"))) {
     $("lista-vacia").hidden = false;
     return;
   }
   renderGastos();
-  mostrarAviso("Gasto borrado");
+  mostrarAviso(`${T.nombre} borrado`);
 });
 
 // "Borrar todos": primer toque pide confirmar, el segundo borra (4 s para decidir)
-const TEXTO_BORRAR_TODO = "Borrar todos los gastos";
+const TEXTO_BORRAR_TODO = "Borrar todos los movimientos";
 $("boton-borrar-todo").addEventListener("click", () => {
   const boton = $("boton-borrar-todo");
   if (!temporizadorTodos) {
-    boton.textContent = "¿Seguro? Toca otra vez para borrar todo";
+    boton.textContent = "¿Seguro? Se borran gastos, ingresos y ahorros. Toca otra vez";
     temporizadorTodos = setTimeout(() => { boton.textContent = TEXTO_BORRAR_TODO; temporizadorTodos = null; }, 4000);
     return;
   }
   clearTimeout(temporizadorTodos);
   temporizadorTodos = null;
   boton.textContent = TEXTO_BORRAR_TODO;
-  if (!confirmarCambio({ categorias: estado.categorias, gastos: [] }, $("lista-vacia"))) {
+  if (!confirmarCambio({ ...estado, gastos: [], ingresos: [], ahorros: [] }, $("lista-vacia"))) {
     $("lista-vacia").hidden = false;
     return;
   }
   renderGastos();
-  mostrarAviso("Se borraron todos los gastos");
+  mostrarAviso("Se borraron todos los movimientos");
 });
+
 
 // ============================================================
 // 9. VISTA PERFIL
@@ -958,7 +1472,7 @@ window.addEventListener("storage", (e) => {
   if (!usuario) return;
   if (e.key === prefijoDatos(usuario.id)) {
     const cargado = cargarDatos(usuario.id);
-    estado = { categorias: cargado.categorias, gastos: cargado.gastos };
+    estado = estadoDe(cargado);
     rellenarCategorias();
     renderVista();
   } else if (e.key === CLAVE_USUARIOS) {

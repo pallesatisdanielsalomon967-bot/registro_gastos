@@ -1,0 +1,5 @@
+Lector de texto (OCR) incluido en el proyecto para que no dependa de ningún sitio externo.
+- tesseract.min.js, worker.min.js: Tesseract.js 5 (Apache-2.0)
+- tesseract-core-simd-lstm.wasm.js: Tesseract.js-core 5.1.1 (Apache-2.0)
+- lang/spa.traineddata.gz: datos de idioma español (Apache-2.0, proyecto Tesseract OCR)
+Solo se descargan cuando la persona toca "Escanear recibo".

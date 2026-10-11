@@ -32,6 +32,38 @@ const CATEGORIAS_BASE = [
   { id: ID_OTROS,          nombre: "Otros",           emoji: "📦", color: COLOR_NEUTRO }
 ];
 
+/** Fuentes de ingreso con las que empieza cada cuenta (editables por el usuario). */
+const FUENTES_BASE = [
+  { id: "salario",       nombre: "Salario",                emoji: "💼", color: 0 },
+  { id: "mesada",        nombre: "Mesada",                 emoji: "🏠", color: 1 },
+  { id: "independiente", nombre: "Trabajo independiente",  emoji: "🧰", color: 2 },
+  { id: "ventas",        nombre: "Ventas",                 emoji: "🛍️", color: 3 },
+  { id: "regalos",       nombre: "Regalos y apoyos",       emoji: "🎁", color: 4 },
+  { id: ID_OTROS,        nombre: "Otros ingresos",         emoji: "📦", color: COLOR_NEUTRO }
+];
+
+/** Destinos de ahorro e inversión con los que empieza cada cuenta (editables). */
+const DESTINOS_BASE = [
+  { id: "ahorro",     nombre: "Ahorro general",          emoji: "🐷", color: 2 },
+  { id: "emergencia", nombre: "Fondo de emergencia",     emoji: "🛟", color: 0 },
+  { id: "meta",       nombre: "Meta o proyecto",         emoji: "🎯", color: 3 },
+  { id: "cdt",        nombre: "CDT / inversión a plazo", emoji: "🏦", color: 6 },
+  { id: "acciones",   nombre: "Acciones y fondos",       emoji: "📈", color: 5 },
+  { id: ID_OTROS,     nombre: "Otros ahorros",           emoji: "📦", color: COLOR_NEUTRO }
+];
+
+/**
+ * Los tres tipos de movimiento. Cada uno tiene su lista de registros y su propio
+ * catálogo editable (categorías / fuentes / destinos). Todos los registros tienen la
+ * misma forma: { id, categoria, monto, descripcion, fecha }.
+ */
+const TIPOS = {
+  gasto:   { nombre: "Gasto",   plural: "gastos",   catalogo: "categorias", registros: "gastos",   campo: "Categoría",           errorCatalogo: "Elige una categoría." },
+  ingreso: { nombre: "Ingreso", plural: "ingresos", catalogo: "fuentes",    registros: "ingresos", campo: "Fuente de ingreso",   errorCatalogo: "Elige una fuente de ingreso." },
+  ahorro:  { nombre: "Ahorro",  plural: "ahorros",  catalogo: "destinos",   registros: "ahorros",  campo: "Destino del ahorro",  errorCatalogo: "Elige un destino del ahorro." }
+};
+const ORDEN_TIPOS = ["gasto", "ingreso", "ahorro"];
+
 const LARGO_MAXIMO_CATEGORIA = 24;
 const MAXIMO_CATEGORIAS = 30;
 const MONTO_MAXIMO = 100000000; // 100 millones: evita errores de digitación absurdos
@@ -40,6 +72,15 @@ const LARGO_MAXIMO_DESCRIPCION = 60;
 /** Copia nueva de las categorías base (para no modificar la constante por accidente). */
 function categoriasIniciales() {
   return CATEGORIAS_BASE.map((c) => ({ ...c }));
+}
+
+/** Catálogos iniciales de las tres clases de movimiento. */
+function catalogosIniciales() {
+  return {
+    categorias: categoriasIniciales(),
+    fuentes: FUENTES_BASE.map((c) => ({ ...c })),
+    destinos: DESTINOS_BASE.map((c) => ({ ...c }))
+  };
 }
 
 /** Minúsculas y sin tildes: "Café" y "cafe" cuentan como el mismo nombre. */
@@ -205,7 +246,8 @@ function partesDeFecha(fecha = new Date()) {
 
 /** "2026-10-10" -> "10 oct 2026". */
 function formatearFecha(fechaTexto) {
-  return aFecha(fechaTexto).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  // El navegador devuelve "10 de oct de 2026"; se acorta a "10 oct 2026"
+  return aFecha(fechaTexto).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" }).replace(/ de /g, " ");
 }
 
 /** "2026-10-10" -> "10 oct" (para los ejes de los gráficos). */
@@ -227,9 +269,9 @@ function generarId() {
  * Revisa los datos de un gasto, en el mismo orden del formulario:
  * categoría, monto, descripción y fecha. Devuelve "" si está bien.
  */
-function validarGasto(datos, categorias, hoy = fechaDeHoy()) {
+function validarGasto(datos, categorias, hoy = fechaDeHoy(), tipo = "gasto") {
   if (!buscarCategoria(categorias, datos.categoria)) {
-    return "Elige una categoría.";
+    return TIPOS[tipo].errorCatalogo;
   }
   const monto = Number(datos.monto);
   if (String(datos.monto ?? "").trim() === "" || !Number.isFinite(monto) || monto <= 0) {
@@ -452,6 +494,417 @@ function formatearDineroCorto(valor) {
 }
 
 // ============================================================
+// 5b. Leer recibos (texto del OCR -> datos del gasto) y compartir por WhatsApp
+// ============================================================
+
+const MESES_ABREVIADOS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, sept: 9, oct: 10, nov: 11, dic: 12 };
+
+/** Palabras que delatan la categoría de un recibo. Solo se usan si esa categoría existe. */
+const PALABRAS_CATEGORIA = {
+  comida: ["restaurante", "almuerzo", "desayuno", "cena", "exito", "carulla", "jumbo", "olimpica", "ara ", "d1", "panaderia", "cafe", "pizza", "hamburguesa", "supermercado", "mercado", "frisby", "kfc", "mcdonald", "crepes", "heladeria"],
+  transporte: ["taxi", "uber", "didi", "cabify", "gasolina", "terpel", "primax", "peaje", "transmilenio", "metro", "bus ", "parqueadero"],
+  salud: ["drogueria", "farmacia", "cruz verde", "farmatodo", "locatel", "clinica", "laboratorio", "consulta medica", "eps"],
+  estudio: ["papeleria", "libreria", "universidad", "colegio", "fotocopia", "copias", "matricula", "panamericana"],
+  entretenimiento: ["cine", "cinemark", "cinecolombia", "netflix", "spotify", "disney", "concierto", "boleta", "videojuego", "steam"],
+  servicios: ["energia", "acueducto", "alcantarillado", "gas natural", "internet", "claro", "movistar", "tigo", "etb", "recibo", "factura de servicios"]
+};
+
+/**
+ * Convierte "15.000", "15.000,00", "1,234.50" o "$ 15000" en número.
+ * En Colombia el punto separa miles y la coma los decimales, pero los recibos mezclan formatos.
+ * Devuelve null si no es un número.
+ */
+function interpretarNumero(texto) {
+  let t = String(texto ?? "").replace(/[^\d.,]/g, "");
+  if (!/\d/.test(t)) return null;
+  const punto = t.lastIndexOf("."), coma = t.lastIndexOf(",");
+  if (punto !== -1 && coma !== -1) {
+    // Los dos símbolos: el que aparece de último es el decimal
+    const decimal = punto > coma ? "." : ",";
+    const miles = decimal === "." ? "," : ".";
+    t = t.split(miles).join("").replace(decimal, ".");
+  } else if (punto !== -1 || coma !== -1) {
+    const sep = punto !== -1 ? "." : ",";
+    const partes = t.split(sep);
+    // "15.000" o "1.234.567" son miles; "15,5" o "15.50" son decimales
+    const esMiles = partes.length > 2 || partes[1].length === 3;
+    t = esMiles ? partes.join("") : `${partes[0]}.${partes[1]}`;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Montos plausibles de una línea de texto (entre 100 y el máximo permitido). */
+function montosDeLinea(lineaOriginal) {
+  // Se quitan las fechas ("11/10/2026") para que sus números no se lean como dinero
+  const linea = lineaOriginal.replace(/\b\d{1,4}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g, " ");
+  const montos = [];
+  for (const m of linea.matchAll(/\d[\d.,]*\d|\d/g)) {
+    const ficha = m[0];
+    if (ficha.replace(/\D/g, "").length > 9) continue; // NIT, teléfonos, códigos de barras
+    const valor = interpretarNumero(ficha);
+    if (valor !== null && valor >= 100 && valor <= MONTO_MAXIMO) {
+      montos.push({ valor: Math.round(valor), conSeparador: /[.,]/.test(ficha), conSimbolo: /\$/.test(linea.slice(Math.max(0, m.index - 2), m.index)) });
+    }
+  }
+  return montos;
+}
+
+/** Busca el monto total del recibo. Devuelve { valor, origen } o null. */
+function buscarMontoTotal(texto) {
+  const lineas = String(texto ?? "").split(/\r?\n/);
+  const esTotal = /\b(total|a pagar|neto)\b/i;
+  const noEsTotal = /sub\s*-?\s*total|iva|impuesto|descuento|cambio|propina|items|articulos|cantidad/i;
+
+  const candidatos = [];
+  for (const linea of lineas) {
+    if (esTotal.test(linea) && !noEsTotal.test(linea)) candidatos.push(...montosDeLinea(linea));
+  }
+  if (candidatos.length > 0) {
+    return { valor: Math.max(...candidatos.map((c) => c.valor)), origen: "total" };
+  }
+  // Sin línea de "total": el monto mayor que parezca dinero (con separador de miles o con $)
+  const ruido = /\b(nit|tel|cel|nro|factura|resoluci|autoriz|tarjeta|fecha|hora|caja|ref|cufe)\b/i;
+  const todos = [];
+  for (const linea of lineas) {
+    if (ruido.test(linea)) continue;
+    todos.push(...montosDeLinea(linea).filter((c) => c.conSeparador || c.conSimbolo));
+  }
+  return todos.length > 0 ? { valor: Math.max(...todos.map((c) => c.valor)), origen: "mayor" } : null;
+}
+
+/** Busca la primera fecha válida y no futura. Devuelve "AAAA-MM-DD" o null. */
+function buscarFecha(texto, hoy = fechaDeHoy()) {
+  const t = String(texto ?? "");
+  const candidatas = [];
+  for (const m of t.matchAll(/\b(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})\b/g)) candidatas.push([+m[1], +m[2], +m[3]]);
+  for (const m of t.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})\b/g)) {
+    candidatas.push([m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2], +m[1]]); // en Colombia: día/mes/año
+  }
+  for (const m of t.matchAll(/\b(\d{1,2})\s*(?:de\s*)?([A-Za-záéíóúÁÉÍÓÚ]{3,10})\.?\s*(?:de\s*)?(\d{4})\b/g)) {
+    const mes = MESES_ABREVIADOS[normalizarTexto(m[2]).slice(0, 4) === "sept" ? "sept" : normalizarTexto(m[2]).slice(0, 3)];
+    if (mes) candidatas.push([+m[3], mes, +m[1]]);
+  }
+  for (const [anio, mes, dia] of candidatas) {
+    const f = `${anio}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+    if (anio >= 2000 && esFechaReal(f) && f <= hoy) return f;
+  }
+  return null;
+}
+
+/** Nombre del comercio: la primera línea que parezca un nombre (no NIT, teléfono ni dirección). */
+function buscarComercio(texto) {
+  const ruido = /\b(nit|tel|cel|factura|resoluci|regimen|direccion|cra|calle|carrera|www|http|fecha|hora|caja|cliente|vendedor)\b|@|\d{4,}/i;
+  const lineas = String(texto ?? "").split(/\r?\n/).slice(0, 10);
+  for (const original of lineas) {
+    const limpia = original.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 &.'-]/g, " ").replace(/\s+/g, " ").trim();
+    if ((limpia.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g) ?? []).length < 3) continue;
+    if (ruido.test(normalizarTexto(original)) || ruido.test(original)) continue;
+    const nombre = limpia === limpia.toUpperCase()
+      ? limpia.toLowerCase().replace(/(^|[\s.])\S/g, (c) => c.toUpperCase())
+      : limpia;
+    return nombre.slice(0, LARGO_MAXIMO_DESCRIPCION);
+  }
+  return "";
+}
+
+const PALABRAS_INGRESO = {
+  salario: ["salario", "sueldo", "nomina", "quincena"],
+  mesada: ["mesada", "mis papas", "mi mama", "mi papa"],
+  independiente: ["freelance", "honorarios", "proyecto", "cliente", "trabajo independiente"],
+  ventas: ["vendi", "venta", "ventas"],
+  regalos: ["regalo", "cumpleanos", "apoyo", "subsidio", "prima", "bono"]
+};
+
+const PALABRAS_AHORRO = {
+  emergencia: ["emergencia", "imprevistos"],
+  meta: ["meta", "viaje", "proyecto"],
+  cdt: ["cdt", "a plazo", "plazo fijo"],
+  acciones: ["accion", "acciones", "bolsa", "etf", "cripto", "bitcoin", "fondo de inversion"],
+  ahorro: ["alcancia", "ahorro general"]
+};
+
+const PALABRAS_POR_TIPO = { gasto: PALABRAS_CATEGORIA, ingreso: PALABRAS_INGRESO, ahorro: PALABRAS_AHORRO };
+
+/**
+ * Sugiere una opción del catálogo (id) según las palabras del texto. Solo devuelve opciones que existen.
+ * Primero busca el NOMBRE de una opción (incluidas las que creó el usuario) y luego palabras clave.
+ */
+function sugerirCategoria(texto, categorias, tipo = "gasto") {
+  const t = ` ${normalizarTexto(texto)} `;
+  const idsBase = new Set([...CATEGORIAS_BASE, ...FUENTES_BASE, ...DESTINOS_BASE].map((c) => c.id));
+  // Las opciones creadas por el usuario van primero: son más específicas ("comida para mascotas" -> Mascotas)
+  const ordenadas = [...categorias.filter((c) => !idsBase.has(c.id)), ...categorias.filter((c) => idsBase.has(c.id))];
+  for (const c of ordenadas) {
+    const nombre = normalizarTexto(c.nombre);
+    if (c.id !== ID_OTROS && nombre.length >= 4 && t.includes(` ${nombre} `)) return c.id;
+  }
+  for (const c of ordenadas) {
+    const nombre = normalizarTexto(c.nombre);
+    if (c.id !== ID_OTROS && nombre.length >= 4 && t.includes(nombre)) return c.id;
+  }
+  for (const [id, palabras] of Object.entries(PALABRAS_POR_TIPO[tipo] ?? {})) {
+    if (!buscarCategoria(categorias, id)) continue;
+    if (palabras.some((p) => t.includes(p.length <= 3 ? ` ${p} ` : p))) return id;
+  }
+  return null;
+}
+
+/** Del texto crudo del OCR a los datos que se proponen en el formulario (el usuario siempre los revisa). */
+function parsearRecibo(texto, categorias, hoy = fechaDeHoy(), tipo = "gasto") {
+  const total = buscarMontoTotal(texto);
+  return {
+    monto: total ? total.valor : null,
+    origenMonto: total ? total.origen : null,
+    fecha: buscarFecha(texto, hoy),
+    descripcion: buscarComercio(texto),
+    categoria: sugerirCategoria(texto, categorias, tipo)
+  };
+}
+
+/** Texto del resumen mensual para enviar por WhatsApp (el usuario lo ve y lo puede editar antes). */
+function textoResumenWhatsApp({ nombre, hoy, resumen, ranking, formatoDinero, finanzas = null }) {
+  const mes = aFecha(hoy).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+  const lineas = [`📊 Mi resumen de ${mes} (1–${resumen.diaDelMes})`];
+  if (finanzas) {
+    lineas.push(`Ingresos: ${formatoDinero(finanzas.ingresos)}`);
+    lineas.push(`Gastos: ${formatoDinero(finanzas.gastos)} en ${resumen.cantidad} ${resumen.cantidad === 1 ? "gasto" : "gastos"}`);
+    lineas.push(`Ahorro e inversión: ${formatoDinero(finanzas.ahorros)}`);
+    lineas.push(`Balance del mes: ${finanzas.balance < 0 ? "−" : ""}${formatoDinero(Math.abs(finanzas.balance))}${finanzas.balance < 0 ? " (gasté más de lo que entró)" : ""}`);
+  } else {
+    lineas.push(`Total del mes: ${formatoDinero(resumen.total)} en ${resumen.cantidad} ${resumen.cantidad === 1 ? "gasto" : "gastos"}`);
+  }
+  if (resumen.cantidad > 0) {
+    lineas.push("", `Promedio de gasto por día: ${formatoDinero(resumen.promedioDiario)}`);
+    if (ranking.length > 0) lineas.push(`Donde más gasto: ${ranking[0].nombre} (${formatoDinero(ranking[0].total)})`);
+    if (resumen.mayor) lineas.push(`Gasto más grande: ${formatoDinero(resumen.mayor.monto)} (${resumen.mayor.descripcion})`);
+  }
+  if (resumen.variacion !== null && resumen.variacion !== 0) {
+    lineas.push(`${resumen.variacion > 0 ? "▲" : "▼"} ${Math.abs(resumen.variacion)} % ${resumen.variacion > 0 ? "más" : "menos"} gasto que el mes pasado (mismos días)`);
+  }
+  lineas.push("", `— ${nombre}, con Registro de Gastos`);
+  return lineas.join("\n");
+}
+
+// ============================================================
+// 5c. Ingresos, ahorros y balance
+// ============================================================
+
+/** Totales del mes en curso de los tres tipos y el balance (ingresos − gastos − ahorro). */
+function totalesFinancieros(estado, hoy) {
+  const inicio = `${hoy.slice(0, 7)}-01`;
+  const sumar = (lista) => calcularTotal(gastosEntre(lista ?? [], inicio, hoy));
+  const ingresos = sumar(estado.ingresos);
+  const gastos = sumar(estado.gastos);
+  const ahorros = sumar(estado.ahorros);
+  return { ingresos, gastos, ahorros, balance: ingresos - gastos - ahorros, ahorradoTotal: calcularTotal(estado.ahorros ?? []) };
+}
+
+/** Lista de los últimos `n` meses ("AAAA-MM"), del más antiguo al actual. */
+function listaDeMeses(hoy, n = 6) {
+  const [anio, mes] = hoy.split("-").map(Number);
+  const meses = [];
+  for (let i = n - 1; i >= 0; i--) {
+    meses.push(aFechaTexto(new Date(anio, mes - 1 - i, 1, 12)).slice(0, 7));
+  }
+  return meses;
+}
+
+/** "2026-10" -> "octubre de 2026". */
+function nombreDelMes(mes) {
+  return aFecha(`${mes}-01`).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+}
+
+/**
+ * GRÁFICO DE INGRESOS — total de cada uno de los últimos `n` meses, separado por fuente.
+ * Devuelve [{ mes, etiqueta, nombre, total, cantidad, porFuente: [{ id, nombre, emoji, color, total }] }].
+ */
+function ingresosPorMes(ingresos, fuentes, hoy, n = 6) {
+  return listaDeMeses(hoy, n).map((mes) => {
+    const delMes = ingresos.filter((g) => g.fecha.slice(0, 7) === mes && g.fecha <= hoy);
+    const porFuente = fuentes
+      .map((f) => ({ id: f.id, nombre: f.nombre, emoji: f.emoji, color: f.color, total: calcularTotal(delMes.filter((g) => g.categoria === f.id)) }))
+      .filter((f) => f.total > 0);
+    return {
+      mes,
+      etiqueta: aFecha(`${mes}-01`).toLocaleDateString("es-CO", { month: "short" }).replace(".", ""),
+      nombre: nombreDelMes(mes),
+      total: calcularTotal(delMes),
+      cantidad: delMes.length,
+      porFuente
+    };
+  });
+}
+
+// ============================================================
+// 5d. Dictado: de una frase ("gasté quince mil en almuerzo ayer") a los datos del movimiento
+// ============================================================
+// Sirve igual para lo que se dicta con el micrófono, lo que se escribe o lo que se pega
+// (por ejemplo, un mensaje copiado de WhatsApp). Solo PROPONE datos: la persona revisa.
+
+const NUMEROS_UNIDAD = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9,
+  diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18,
+  diecinueve: 19, veinte: 20, veintiun: 21, veintiuno: 21, veintiuna: 21, veintidos: 22, veintitres: 23,
+  veinticuatro: 24, veinticinco: 25, veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29
+};
+const NUMEROS_DECENA = { treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90 };
+const NUMEROS_CENTENA = {
+  cien: 100, ciento: 100, doscientos: 200, doscientas: 200, trescientos: 300, trescientas: 300, cuatrocientos: 400,
+  cuatrocientas: 400, quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700,
+  setecientas: 700, ochocientos: 800, ochocientas: 800, novecientos: 900, novecientas: 900
+};
+const MULTIPLICADORES_MIL = ["mil", "luca", "lucas"];          // "veinte lucas" = 20.000 (jerga colombiana)
+const MULTIPLICADORES_MILLON = ["millon", "millones", "palo", "palos"]; // "un palo" = 1.000.000
+
+const MESES_NOMBRES = {
+  enero: 1, ene: 1, febrero: 2, feb: 2, marzo: 3, mar: 3, abril: 4, abr: 4, mayo: 5, may: 5, junio: 6, jun: 6,
+  julio: 7, jul: 7, agosto: 8, ago: 8, septiembre: 9, setiembre: 9, sept: 9, sep: 9, octubre: 10, oct: 10,
+  noviembre: 11, nov: 11, diciembre: 12, dic: 12
+};
+
+const PALABRAS_SUELTAS = new Set([
+  "en", "por", "de", "del", "para", "a", "al", "el", "la", "los", "las", "un", "una", "mi", "mis", "con", "que", "y",
+  "pesos", "peso", "cop", "plata", "dinero", "hoy", "ayer", "anteayer", "antier", "anoche", "esta", "este", "mas",
+  "me", "se", "lo", "fue", "fueron", "es", "son", "como", "ya"
+]);
+const VERBOS_MOVIMIENTO = new Set([
+  "gaste", "gasto", "pague", "pagar", "compre", "comprar", "recibi", "recibo", "cobre", "gane", "pagaron", "pago",
+  "consignaron", "depositaron", "transfirieron", "dieron", "vendi", "ahorre", "ahorro", "inverti", "invierto",
+  "separe", "meti", "puse", "registra", "registrar", "anota", "anotar", "agrega", "agregar", "quiero", "necesito"
+]);
+
+function sinTildes(texto) {
+  return String(texto ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function esFichaNumerica(n, siguiente) {
+  if (/^\$?\d[\d.,]*k?$/.test(n)) return true;
+  if (Object.hasOwn(NUMEROS_UNIDAD, n) || Object.hasOwn(NUMEROS_DECENA, n) || Object.hasOwn(NUMEROS_CENTENA, n)) return true;
+  if (MULTIPLICADORES_MIL.includes(n) || MULTIPLICADORES_MILLON.includes(n)) return true;
+  return n === "medio" && siguiente === "millon";
+}
+
+/** Valor de una tanda de palabras de número: "quince mil quinientos" -> 15500, "2 millones" -> 2000000. */
+function valorDeNumeros(fichas) {
+  let total = 0, actual = 0;
+  for (const f of fichas) {
+    if (f === "y") continue;
+    if (/^\$?\d/.test(f)) {
+      const limpia = f.replace(/^\$/, "");
+      if (limpia.endsWith("k")) actual += (interpretarNumero(limpia.slice(0, -1)) ?? 0) * 1000;
+      else actual += interpretarNumero(limpia) ?? 0;
+    } else if (Object.hasOwn(NUMEROS_UNIDAD, f)) actual += NUMEROS_UNIDAD[f];
+    else if (Object.hasOwn(NUMEROS_DECENA, f)) actual += NUMEROS_DECENA[f];
+    else if (Object.hasOwn(NUMEROS_CENTENA, f)) actual += NUMEROS_CENTENA[f];
+    else if (f === "medio") actual += 0.5;
+    else if (MULTIPLICADORES_MIL.includes(f)) { total += (actual || 1) * 1000; actual = 0; }
+    else if (MULTIPLICADORES_MILLON.includes(f)) { total += (actual || 1) * 1000000; actual = 0; }
+  }
+  return Math.round(total + actual);
+}
+
+/** Qué clase de movimiento es: gana el verbo que aparece primero ("gasté lo que había ahorrado" es un gasto). */
+function detectarTipo(textoNormalizado, porDefecto = "gasto") {
+  const reglas = {
+    gasto: /\b(gast\w*|pague|pagar|compre|comprar|me cobraron|costo|cuesta)\b/,
+    ingreso: /\b(recibi|cobre|gane|ingreso\w*|me pagaron|me pago|me consignaron|me depositaron|me transfirieron|me dieron|vendi|sueldo|salario|mesada|quincena|honorarios)\b/,
+    ahorro: /\b(ahorr\w*|invert\w*|inversion\w*|alcancia|cdt|separe)\b/
+  };
+  let mejor = porDefecto, posicion = Infinity;
+  for (const [tipo, regla] of Object.entries(reglas)) {
+    const m = regla.exec(textoNormalizado);
+    if (m && m.index < posicion) { mejor = tipo; posicion = m.index; }
+  }
+  return mejor;
+}
+
+/**
+ * De una frase a { tipo, monto, fecha, categoria, descripcion }. `estado` trae los catálogos del usuario.
+ * Cada dato que no se entiende queda en null o "": nunca se inventa.
+ */
+function parsearDictado(texto, estado, hoy = fechaDeHoy(), tipoPorDefecto = "gasto") {
+  const original = String(texto ?? "").trim();
+  const fichas = original.split(/\s+/)
+    .map((t) => t.replace(/^[^\p{L}\p{N}$]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean);
+  const norm = fichas.map((t) => sinTildes(t).replace(/^\$(?=\D)/, ""));
+  const usada = new Array(fichas.length).fill(false);
+  const tipo = detectarTipo(norm.join(" "), tipoPorDefecto);
+
+  // ----- Fecha -----
+  let fecha = null;
+  for (let i = 0; i < norm.length && fecha === null; i++) {
+    const n = norm[i];
+    if (n === "hoy") { fecha = hoy; usada[i] = true; }
+    else if (n === "ayer" || n === "anoche") { fecha = sumarDias(hoy, -1); usada[i] = true; }
+    else if (n === "anteayer" || n === "antier") { fecha = sumarDias(hoy, -2); usada[i] = true; }
+    else if (n === "hace" && i + 2 < norm.length + 0 && /^(dia|dias|semana|semanas)$/.test(norm[i + 2] ?? "")) {
+      const cuantos = /^\d+$/.test(norm[i + 1]) ? Number(norm[i + 1]) : NUMEROS_UNIDAD[norm[i + 1]];
+      if (cuantos !== undefined) {
+        fecha = sumarDias(hoy, -cuantos * (norm[i + 2].startsWith("semana") ? 7 : 1));
+        usada[i] = usada[i + 1] = usada[i + 2] = true;
+      }
+    } else if (/^\d{1,2}$/.test(n)) {
+      // "5 de octubre" o "5 de octubre de 2026"
+      let k = i + 1;
+      if (norm[k] === "de") k++;
+      const mes = MESES_NOMBRES[norm[k]];
+      if (mes) {
+        let anio = Number(hoy.slice(0, 4)), fin = k;
+        if (norm[k + 1] === "de" && /^\d{4}$/.test(norm[k + 2] ?? "")) { anio = Number(norm[k + 2]); fin = k + 2; }
+        else if (/^\d{4}$/.test(norm[k + 1] ?? "")) { anio = Number(norm[k + 1]); fin = k + 1; }
+        let candidata = `${anio}-${String(mes).padStart(2, "0")}-${String(Number(n)).padStart(2, "0")}`;
+        if (fin === k && candidata > hoy) candidata = `${anio - 1}${candidata.slice(4)}`; // sin año y en el futuro: fue el año pasado
+        if (esFechaReal(candidata) && candidata <= hoy) {
+          fecha = candidata;
+          for (let u = i; u <= fin; u++) usada[u] = true;
+        }
+      }
+    } else if (/^\d{1,4}[\/.-]\d{1,2}[\/.-]\d{2,4}$/.test(n)) {
+      const f = buscarFecha(n, hoy);
+      if (f) { fecha = f; usada[i] = true; }
+    }
+  }
+
+  // ----- Monto: la tanda de números más grande -----
+  let mejor = null;
+  for (let i = 0; i < norm.length; i++) {
+    if (usada[i] || !esFichaNumerica(norm[i], norm[i + 1])) continue;
+    let fin = i;
+    while (fin + 1 < norm.length && !usada[fin + 1] &&
+      (esFichaNumerica(norm[fin + 1], norm[fin + 2]) ||
+        (norm[fin + 1] === "y" && fin + 2 < norm.length && esFichaNumerica(norm[fin + 2], norm[fin + 3])))) fin++;
+    const valor = valorDeNumeros(norm.slice(i, fin + 1));
+    if (valor >= 100 && valor <= MONTO_MAXIMO && (mejor === null || valor > mejor.valor)) mejor = { valor, inicio: i, fin };
+    i = fin;
+  }
+
+  // ----- Descripción: lo que va después del monto ("en almuerzo"); si no hay, lo que va antes -----
+  const limpiar = (lista) => {
+    const palabras = lista.filter(([i]) => !usada[i]).map(([, t, n]) => [t, n]);
+    while (palabras.length > 0 && (PALABRAS_SUELTAS.has(palabras[0][1]) || VERBOS_MOVIMIENTO.has(palabras[0][1]))) palabras.shift();
+    return palabras.filter(([, n]) => !PALABRAS_SUELTAS.has(n) || n === "y").map(([t]) => t);
+  };
+  let descripcion = "";
+  if (mejor) {
+    const despues = limpiar(fichas.map((t, i) => [i, t, norm[i]]).slice(mejor.fin + 1));
+    const antes = limpiar(fichas.map((t, i) => [i, t, norm[i]]).slice(0, mejor.inicio).filter(([, , n]) => !VERBOS_MOVIMIENTO.has(n)));
+    descripcion = (despues.length > 0 ? despues : antes).slice(0, 8).join(" ");
+  }
+  descripcion = descripcion.charAt(0).toUpperCase() + descripcion.slice(1);
+
+  const catalogo = estado[TIPOS[tipo].catalogo] ?? [];
+  return {
+    tipo,
+    monto: mejor ? mejor.valor : null,
+    fecha,
+    descripcion: descripcion.slice(0, LARGO_MAXIMO_DESCRIPCION),
+    categoria: sugerirCategoria(original, catalogo, tipo)
+  };
+}
+
+// ============================================================
 // 6. Usuario y perfil
 // ============================================================
 
@@ -528,6 +981,8 @@ if (typeof module !== "undefined" && module.exports) {
     partesDeFecha, formatearFecha, formatearFechaCorta, validarGasto, crearGasto, limpiarGastos,
     limpiarCategorias, ordenarPorFecha, filtrarPorCategoria, calcularTotal, gastosEntre, totalDelMes,
     rankingCategorias, totalesPorDia, resumenMes, formatearDinero, formatearDineroCorto,
-    normalizarCorreo, validarContrasena, validarRegistro, validarPerfil, iniciales
+    FUENTES_BASE, DESTINOS_BASE, TIPOS, ORDEN_TIPOS, catalogosIniciales, totalesFinancieros, listaDeMeses, nombreDelMes,
+    ingresosPorMes, valorDeNumeros, detectarTipo, parsearDictado, interpretarNumero, buscarMontoTotal, buscarFecha, buscarComercio, sugerirCategoria, parsearRecibo,
+    textoResumenWhatsApp, normalizarCorreo, validarContrasena, validarRegistro, validarPerfil, iniciales
   };
 }
